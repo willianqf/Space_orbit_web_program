@@ -1,4 +1,4 @@
-# server_bot_ai.py
+# Servidor/server_bot_ai.py
 import random
 import math
 import pygame # Para Vector2
@@ -76,7 +76,6 @@ class ServerBotManager:
                 print(f"[IA] Removendo bot excedente: {key_to_remove} (Sala cheia)")
         
         # Limpeza de NPCs mortos (já existente)
-        npcs_antes = len(self.network_npcs)
         self.network_npcs[:] = [n for n in self.network_npcs if n.get('hp', 0) > 0]
         
         return bots_para_remover
@@ -84,24 +83,38 @@ class ServerBotManager:
     def spawn_bot(self):
         """ Cria um novo bot e o adiciona ao player_states. """
         
-        nome_bot = ""
+        # --- GERADOR DE NOMES NATURAIS ---
+        nomes_base = [
+            "Viper", "Rex", "Neo", "Zara", "Orion", "Nova", "Luna", "Titan", 
+            "Astro", "Falcon", "Ghost", "Shadow", "Hunter", "Sky", "Draco",
+            "Phoenix", "Nebula", "Cosmo", "Ranger", "Pilot", "Stark", "Wolf",
+            "Raven", "Blaze", "Storm", "Hawk", "Eagle", "Cobra", "Sonic", 
+            "Thunder", "Omega", "Alpha", "Delta", "Echo", "Kilo", "Zulu"
+        ]
+        
         nomes_existentes = [p['nome'] for p in self.player_states.values()]
-        i = 1
+        nome_bot = ""
+        tentativas = 0
+        
         while True:
-            nome_bot = f"Bot_{i}"
+            base = random.choice(nomes_base)
+            # Adiciona um número aleatório para parecer um nick real (Ex: Viper832)
+            numero = random.randint(100, 9999)
+            nome_bot = f"{base}{numero}"
+            
             if nome_bot not in nomes_existentes:
                 break
-            i += 1
-            if i > 99: 
-                print("[LOG] [ERRO] Não foi possível encontrar um nome único para o bot.")
-                return
+                
+            tentativas += 1
+            if tentativas > 100:
+                # Fallback se estiver difícil achar nome
+                nome_bot = f"Bot_{random.randint(10000, 99999)}"
+                break
+        # ---------------------------------
 
         posicoes_atuais = [(p['x'], p['y']) for p in self.player_states.values()]
         
-        # --- INÍCIO: CORREÇÃO DO ERRO (TypeError) ---
-        # Passa as dimensões do mapa PVE (self.s) para o spawn_calculator
         spawn_x, spawn_y = self.spawn_calculator(posicoes_atuais, self.s.MAP_WIDTH, self.s.MAP_HEIGHT)
-        # --- FIM: CORREÇÃO DO ERRO ---
 
         nivel_max_vida_inicial = 1
         max_hp_inicial = VIDA_POR_NIVEL[nivel_max_vida_inicial]
@@ -152,7 +165,7 @@ class ServerBotManager:
         }
         
         self.player_states[nome_bot] = bot_state # Adiciona ao pve_player_states
-        print(f"[LOG] [SERVIDOR] Bot {nome_bot} spawnou em ({int(spawn_x)}, {int(spawn_y)}).")
+        print(f"[LOG] [SERVIDOR] {nome_bot} entrou no setor ({int(spawn_x)}, {int(spawn_y)}).")
         
     def process_bot_logic(self, bot_state, all_living_players, agora_ms):
         """ Função principal chamada pelo game_loop para fazer um bot pensar. """
@@ -286,7 +299,7 @@ class ServerBotManager:
                 bot_state['bot_estado_ia'] = "FUGINDO" 
                 if bot_state['bot_flee_destination'] is None:
                     bot_state['bot_flee_destination'] = self._find_closest_edge_point(bot_state['x'], bot_state['y'])
-                    print(f"[{bot_state['nome']}] HP baixo! Fugindo para {bot_state['bot_flee_destination']}")
+                    # print(f"[{bot_state['nome']}] HP baixo! Fugindo para {bot_state['bot_flee_destination']}")
                 
                 if bot_state['bot_flee_destination']:
                     bot_state['alvo_mouse'] = bot_state['bot_flee_destination']

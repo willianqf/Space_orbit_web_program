@@ -41,6 +41,9 @@ let isPaused = false;
 let isSpectating = false;
 let spectatorTargetId = null;
 
+// Variável para armazenar o modo selecionado no menu
+let selectedGameMode = 'PVE'; 
+
 let auxVisuals = {}; 
 const AUX_OFFSETS = [
     {x: -40, y: 20}, {x: 40, y: 20}, 
@@ -60,9 +63,25 @@ function lerpAngle(start, end, t) {
     return start + diff * t;
 }
 
+// --- EFEITO DE EXPLOSÃO ---
+function spawnExplosionParticles(x, y, color) {
+    for (let i = 0; i < 12; i++) { 
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1 + Math.random() * 3;
+        particles.push({
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1.0,
+            size: 4 + Math.random() * 4,
+            color: color
+        });
+    }
+}
+
 function spawnEngineParticles(x, y, angle) {
     const rad = (angle * Math.PI) / 180;
-    // Ajuste fino da posição do motor
     const dist = 28; 
     const backX = x + Math.sin(rad) * dist;
     const backY = y + Math.cos(rad) * dist;
@@ -75,13 +94,18 @@ function spawnEngineParticles(x, y, angle) {
         x: backX + varX,
         y: backY + varY,
         life: 1.0, 
-        size: 5 + Math.random() * 5
+        size: 5 + Math.random() * 5,
+        color: null 
     });
 }
 
 function updateAndDrawParticles() {
     for (let i = particles.length - 1; i >= 0; i--) {
         let p = particles[i];
+        
+        if (p.vx) p.x += p.vx;
+        if (p.vy) p.y += p.vy;
+
         p.life -= 0.08; 
         if (p.life <= 0) {
             particles.splice(i, 1);
@@ -89,16 +113,40 @@ function updateAndDrawParticles() {
         }
         let screenX = p.x - camX;
         let screenY = p.y - camY;
+        
+        if (screenX < -50 || screenX > canvas.width + 50 || screenY < -50 || screenY > canvas.height + 50) continue;
+
         ctx.beginPath();
         ctx.arc(screenX, screenY, p.size * p.life, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, ${Math.floor(150 * p.life)}, 0, ${p.life})`;
+        
+        if (p.color) {
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life;
+        } else {
+            ctx.fillStyle = `rgba(255, ${Math.floor(150 * p.life)}, 0, ${p.life})`;
+        }
         ctx.fill();
+        ctx.globalAlpha = 1.0;
     }
+}
+
+// --- LÓGICA DO MENU ---
+function selectMode(mode) {
+    selectedGameMode = mode;
+    document.getElementById('modeSelection').classList.add('hidden');
+    document.getElementById('nameInputContainer').classList.remove('hidden');
+}
+
+function backToModeSelect() {
+    document.getElementById('nameInputContainer').classList.add('hidden');
+    document.getElementById('modeSelection').classList.remove('hidden');
 }
 
 function startGame() {
     const name = document.getElementById('playerName').value || "Piloto";
-    const mode = document.getElementById('gameMode').value;
+    // Usa a variável global em vez do select antigo
+    const mode = selectedGameMode; 
+    
     loginScreen.classList.add('hidden');
     hudDiv.classList.remove('hidden');
     connect(name, mode);
@@ -113,11 +161,16 @@ function togglePause() {
     if (isPaused) {
         pauseMenu.classList.remove('hidden');
         let myPlayer = gameState.players.find(p => p.id === myId);
-        if (isSpectating || !myPlayer || myPlayer.hp <= 0) {
-            btnResume.innerText = "VOLTAR (FECHAR MENU)";
-            btnResume.classList.remove('hidden');
-            btnRespawn.classList.remove('hidden');
-            btnSpectate.classList.add('hidden');
+        if (isSpectating) {
+             btnResume.innerText = "VOLTAR (FECHAR MENU)";
+             btnResume.classList.remove('hidden');
+             btnRespawn.classList.remove('hidden'); 
+             btnSpectate.classList.add('hidden');
+        } else if (!myPlayer || myPlayer.hp <= 0) {
+             btnResume.innerText = "VOLTAR (FECHAR MENU)";
+             btnResume.classList.remove('hidden');
+             btnRespawn.classList.remove('hidden');
+             btnSpectate.classList.remove('hidden');
         } else {
             btnResume.innerText = "VOLTAR AO JOGO";
             btnResume.classList.remove('hidden');
@@ -129,7 +182,13 @@ function togglePause() {
     }
 }
 
-function enterSpectatorMode() { if (isConnected) { isSpectating = true; socket.send(JSON.stringify({ type: "ENTER_SPECTATOR" })); togglePause(); } }
+function enterSpectatorMode() { 
+    if (isConnected) { 
+        isSpectating = true; 
+        socket.send(JSON.stringify({ type: "ENTER_SPECTATOR" })); 
+        if (isPaused) togglePause(); 
+    } 
+}
 function requestRespawn() { if (isConnected) { isSpectating = false; socket.send(JSON.stringify({ type: "RESPAWN" })); if (isPaused) { isPaused = false; pauseMenu.classList.add('hidden'); } } }
 function exitGame() { if (socket) socket.close(); location.reload(); }
 
@@ -142,7 +201,7 @@ function connect(playerName, gameMode) {
             myId = msg.id; isConnected = true;
             if (msg.map_width) mapSize.w = msg.map_width;
             if (msg.map_height) mapSize.h = msg.map_height;
-            setInterval(sendInput, 1000 / 30);
+            setInterval(sendInput, 1000 / 60);
             requestAnimationFrame(draw);
         } else if (msg.type === "STATE") {
             gameState = msg;
@@ -155,32 +214,55 @@ function connect(playerName, gameMode) {
 function updateHud() {
     let p = gameState.players.find(p => p.id === myId);
     if (!p) { document.getElementById('hudHp').innerText = "ESPECTADOR"; return; }
+    
     document.getElementById('hudScore').innerText = p.score;
     document.getElementById('hudHp').innerText = p.hp.toFixed(1) + " / " + p.max_hp;
     document.getElementById('hudUpPts').innerText = p.pts_up;
     document.getElementById('shopPointsVal').innerText = p.pts_up;
+    
+    let totalUpgrades = (p.nv_motor - 1) + (p.nv_dano - 1) + (p.nv_hp - 1) + p.nv_escudo + p.nv_aux;
+    const MAX_TOTAL = 10;
+    document.getElementById('shopLimitVal').innerText = totalUpgrades;
+    
+    let limitReached = totalUpgrades >= MAX_TOTAL;
     let auxCost = (p.nv_aux < 4) ? AUX_COSTS[p.nv_aux] : 0;
-    updateShopItem('btnMotor', p.nv_motor, 5, 1, p.pts_up);
-    updateShopItem('btnDano', p.nv_dano, 5, 1, p.pts_up);
-    updateShopItem('btnEscudo', p.nv_escudo, 5, 1, p.pts_up);
-    updateShopItem('btnHp', p.nv_hp, 5, 1, p.pts_up);
-    updateShopItem('btnAux', p.nv_aux, 4, auxCost, p.pts_up); 
+    
+    updateShopItem('btnMotor', p.nv_motor, 5, 1, p.pts_up, limitReached);
+    updateShopItem('btnDano', p.nv_dano, 5, 1, p.pts_up, limitReached);
+    updateShopItem('btnEscudo', p.nv_escudo, 5, 1, p.pts_up, limitReached);
+    updateShopItem('btnHp', p.nv_hp, 5, 1, p.pts_up, limitReached);
+    updateShopItem('btnAux', p.nv_aux, 4, auxCost, p.pts_up, limitReached); 
 }
 
-function updateShopItem(elemId, currentLvl, maxLvl, cost, playerPts) {
+function updateShopItem(elemId, currentLvl, maxLvl, cost, playerPts, limitReached) {
     const el = document.getElementById(elemId);
     const lvlDiv = el.querySelector('.shop-level');
     const costDiv = el.querySelector('.shop-cost');
+    
     if (currentLvl >= maxLvl) {
         lvlDiv.innerText = "MAX"; lvlDiv.style.color = "#ff00ff"; costDiv.innerText = "-"; el.classList.add('disabled');
     } else {
         lvlDiv.innerText = `Nv: ${currentLvl}/${maxLvl}`; lvlDiv.style.color = "#00ffff"; costDiv.innerText = `Custo: ${cost}`;
-        if (playerPts < cost) el.classList.add('disabled'); else el.classList.remove('disabled');
+        if (playerPts < cost || limitReached) {
+            el.classList.add('disabled');
+        } else {
+            el.classList.remove('disabled');
+        }
     }
 }
 
 function sendInput() {
     if (isPaused || isSpectating) return;
+    
+    if (!shopModal.classList.contains('hidden')) {
+        if (isConnected) {
+            socket.send(JSON.stringify({ 
+                type: "INPUT", w: false, a: false, s: false, d: false, space: false 
+            }));
+        }
+        return;
+    }
+
     if (isConnected && myId) {
         let myPlayer = gameState.players.find(p => p.id === myId);
         if (!myPlayer) return;
@@ -200,8 +282,19 @@ window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     if (k === 'escape') { togglePause(); return; }
     if (isPaused) return; 
+    
     if (k === 'v') toggleShop();
+    if (!shopModal.classList.contains('hidden')) return; 
+
     if (k === 'r') toggleRegen();
+
+    let myPlayer = gameState.players.find(p => p.id === myId);
+    if (!myPlayer && !isSpectating && (k === 'e' || k === 'q')) {
+        enterSpectatorMode();
+        cycleSpectatorTarget(); 
+        return;
+    }
+
     if (isSpectating && (k === 'e' || k === 'q')) cycleSpectatorTarget();
     if (k === 'w' || k === 'arrowup') inputState.w = true;
     if (k === 'a' || k === 'arrowleft') inputState.a = true;
@@ -269,16 +362,56 @@ function drawMinimap() {
     minimapCtx.fillStyle = 'rgba(0, 0, 0, 0.6)'; minimapCtx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
     const scaleX = minimapCanvas.width / mapSize.w; const scaleY = minimapCanvas.height / mapSize.h;
     minimapCtx.strokeStyle = '#444'; minimapCtx.lineWidth = 2; minimapCtx.strokeRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+    
     let myPlayer = gameState.players.find(p => p.id === myId);
+    const RADAR_RANGE = 3000;
+
     if (myPlayer && myPlayer.tx !== undefined && myPlayer.ty !== undefined) {
         const startX = myPlayer.x * scaleX; const startY = myPlayer.y * scaleY; const endX = myPlayer.tx * scaleX; const endY = myPlayer.ty * scaleY;
         minimapCtx.beginPath(); minimapCtx.setLineDash([4, 2]); minimapCtx.moveTo(startX, startY); minimapCtx.lineTo(endX, endY);
         minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1; minimapCtx.stroke(); minimapCtx.setLineDash([]);
     }
+
     gameState.players.forEach(p => {
-        minimapCtx.fillStyle = (p.id === myId) ? '#00ff00' : '#ff9900';
+        if (p.id === myId) return; 
+        if (myPlayer) {
+            const dx = p.x - myPlayer.x; const dy = p.y - myPlayer.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist > RADAR_RANGE) return; 
+        }
+        minimapCtx.fillStyle = '#ff9900';
         minimapCtx.beginPath(); minimapCtx.arc(p.x * scaleX, p.y * scaleY, 2, 0, Math.PI * 2); minimapCtx.fill();
     });
+
+    if (gameState.npcs) {
+        gameState.npcs.forEach(npc => {
+            if (npc.type === 'obstaculo') return;
+            if (myPlayer) {
+                const dx = npc.x - myPlayer.x; const dy = npc.y - myPlayer.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist > RADAR_RANGE) return;
+            }
+            let color = '#ff3333'; 
+            if (npc.type === 'mothership') color = '#00ffff'; 
+            else if (npc.type === 'minion_mothership') color = '#008b8b'; 
+            else if (npc.type === 'boss_congelante') color = '#0000ff'; 
+            else if (npc.type === 'minion_congelante') color = '#88ccff'; 
+            else if (npc.type === 'bomba') color = '#ffff00'; 
+            else if (npc.type === 'tiro_rapido') color = '#0066cc'; 
+            else if (npc.type === 'rapido') color = '#ff6600'; 
+            else if (npc.type === 'atordoador') color = '#800080'; 
+            else if (npc.type === 'atirador_rapido') color = '#9900cc'; 
+            minimapCtx.fillStyle = color; minimapCtx.beginPath();
+            let size = 1.5; 
+            if (npc.type === 'mothership' || npc.type === 'boss_congelante') size = 3;
+            minimapCtx.arc(npc.x * scaleX, npc.y * scaleY, size, 0, Math.PI * 2); minimapCtx.fill();
+        });
+    }
+
+    if (myPlayer) {
+        minimapCtx.fillStyle = '#00ff00';
+        minimapCtx.beginPath(); minimapCtx.arc(myPlayer.x * scaleX, myPlayer.y * scaleY, 3, 0, Math.PI * 2); minimapCtx.fill();
+    }
 }
 
 function drawRanking() {
@@ -306,7 +439,7 @@ function draw() {
     if (!isConnected) return;
     ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    const lerpFactor = 0.2; 
+    const lerpFactor = 0.3; 
     
     gameState.players.forEach(p => {
         if (!visualState.players[p.id]) { visualState.players[p.id] = { x: p.x, y: p.y, angle: p.angle, prevX: p.x, prevY: p.y }; }
@@ -318,7 +451,31 @@ function draw() {
             v.angle = lerpAngle(v.angle, p.angle, lerpFactor);
         }
     });
-    for (let id in visualState.players) { if (!gameState.players.find(p => p.id === id)) { delete visualState.players[id]; } }
+    for (let id in visualState.players) { 
+        if (!gameState.players.find(p => p.id === id)) { 
+            let v = visualState.players[id];
+            spawnExplosionParticles(v.x, v.y, '#ffffff');
+            delete visualState.players[id]; 
+        } 
+    }
+
+    gameState.projectiles.forEach(p => {
+        if (!visualState.projectiles[p.id]) {
+            visualState.projectiles[p.id] = { x: p.x, y: p.y };
+        } else {
+            let v = visualState.projectiles[p.id];
+            v.x = lerp(v.x, p.x, lerpFactor);
+            v.y = lerp(v.y, p.y, lerpFactor);
+        }
+    });
+    
+    for (let id in visualState.projectiles) {
+        if (!gameState.projectiles.find(p => p.id === id)) {
+            let v = visualState.projectiles[id];
+            spawnExplosionParticles(v.x, v.y, '#ffaa00');
+            delete visualState.projectiles[id];
+        }
+    }
 
     let myPlayer = gameState.players.find(p => p.id === myId);
     let myVisual = visualState.players[myId];
@@ -410,10 +567,19 @@ function draw() {
             }
             ctx.restore();
         });
-        for (let id in visualState.npcs) { if (!gameState.npcs.find(n => n.id === id)) delete visualState.npcs[id]; }
+        for (let id in visualState.npcs) { 
+            if (!gameState.npcs.find(n => n.id === id)) { 
+                let v = visualState.npcs[id];
+                spawnExplosionParticles(v.x, v.y, '#ff5500'); 
+                delete visualState.npcs[id]; 
+            } 
+        }
     }
 
     gameState.projectiles.forEach(p => {
+        let v = visualState.projectiles[p.id];
+        if (!v) return;
+
         let color = '#ff5555'; 
         let isMax = false;
         
@@ -423,19 +589,17 @@ function draw() {
         }
         
         ctx.beginPath(); 
-        ctx.arc(p.x - camX, p.y - camY, 4, 0, Math.PI * 2); 
+        ctx.arc(v.x - camX, v.y - camY, 4, 0, Math.PI * 2); 
         
         if (isMax) { 
-            // CORREÇÃO: Tiro Neon Verde Vibrante
-            ctx.arc(p.x - camX, p.y - camY, 6, 0, Math.PI * 2);
+            ctx.arc(v.x - camX, v.y - camY, 6, 0, Math.PI * 2);
             ctx.shadowBlur = 50; 
             ctx.shadowColor = '#00ff00'; 
-            ctx.fillStyle = '#00ff00'; // Base Verde
+            ctx.fillStyle = '#00ff00'; 
             ctx.fill();
             
-            // Núcleo Branco para parecer brilhante
             ctx.beginPath();
-            ctx.arc(p.x - camX, p.y - camY, 2, 0, Math.PI * 2);
+            ctx.arc(v.x - camX, v.y - camY, 2, 0, Math.PI * 2);
             ctx.fillStyle = '#ffffff';
             ctx.fill();
         } else { 
@@ -480,17 +644,15 @@ function draw() {
         }
         ctx.save(); ctx.translate(screenX, screenY);
         
-        // --- CORREÇÃO: ESCUDO DESENHADO AQUI (ANTES DA ROTAÇÃO DA NAVE) ---
         if (p.shield_hit) {
             if (p.shield_angle !== undefined) {
                  ctx.save();
-                 ctx.rotate(p.shield_angle); // Usa ângulo absoluto do servidor
+                 ctx.rotate(p.shield_angle); 
                  ctx.beginPath(); ctx.arc(0, 0, 40, -Math.PI/4, Math.PI/4); 
                  ctx.strokeStyle = 'rgba(0, 255, 255, 0.8)'; ctx.lineWidth = 5; ctx.stroke();
                  ctx.restore();
             }
         }
-        // ------------------------------------------------------------------
 
         ctx.fillStyle = 'white'; ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center';
         ctx.fillText(p.id.split('_')[0], 0, -45);
@@ -501,7 +663,6 @@ function draw() {
         ctx.fillStyle = color; ctx.shadowBlur = 15; ctx.shadowColor = color;
         ctx.moveTo(0, -20); ctx.lineTo(-15, 20); ctx.lineTo(15, 20); ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
         
-        // Barra de Vida
         ctx.rotate(-((v.angle * Math.PI / 180) * -1)); 
         ctx.fillStyle = 'red'; ctx.fillRect(-25, 30, 50, 6);
         ctx.fillStyle = '#00ff00'; const hpPercent = Math.max(0, p.hp / p.max_hp);

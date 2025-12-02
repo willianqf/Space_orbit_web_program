@@ -1,8 +1,6 @@
-# settings.py
+# Servidor/settings.py
 import pygame
 pygame.font.init() 
-
-
 
 LARGURA_TELA_INICIAL = 800
 ALTURA_TELA_INICIAL = 600
@@ -95,7 +93,7 @@ AZUL_CONGELANTE = (0, 100, 255)
 AZUL_MINION_CONGELANTE = (100, 150, 255)
 AZUL_TIRO_CONGELANTE = (150, 200, 255)
 PRETO_TRANSPARENTE_PAUSA = (0, 0, 0, 180)
-LILAS_REGEN = (180, 100, 255) # <--- ADICIONADO PARA CORRIGIR A NAVE DE REGEN
+LILAS_REGEN = (180, 100, 255) 
 
 # Cores da Etapa 3 (Visual)
 COR_ESCUDO = (100, 100, 255, 100)
@@ -134,3 +132,6 @@ SOM_TIRO_CONGELANTE = None
 NUM_ESTRELAS = 10000
 VELOCIDADE_TIRO = 45
 FOCO_TIRO = 0.2
+
+# AQUI: Diminuí o offset para 0 para corrigir o "tiro saindo longe"
+OFFSET_PONTA_TIRO = 0
