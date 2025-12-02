@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Orbit .io</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
+        #gameCanvas { display: block; }
+
+        /* Login */
+        #loginScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle, #1a1a1a 0%, #000000 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
+        .login-box { background: rgba(20, 20, 30, 0.9); padding: 40px; border-radius: 15px; text-align: center; border: 2px solid #0099ff; box-shadow: 0 0 30px rgba(0, 153, 255, 0.4); max-width: 400px; width: 90%; }
+        .logo-img { max-width: 100%; height: auto; margin-bottom: 20px; }
+        input, select { margin: 10px 0; padding: 12px; width: 100%; box-sizing: border-box; background-color: #0a0a0a; color: #0099ff; border: 1px solid #333; border-radius: 5px; font-size: 18px; outline: none; text-align: center; }
+        .btn-neon { background: linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%); color: #ffffff; border: 2px solid #0099ff; padding: 12px; width: 100%; border-radius: 8px; font-size: 20px; font-weight: bold; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; }
+        .btn-neon:hover { background: #0099ff; box-shadow: 0 0 15px #0099ff; color: #000; }
+        .hidden { display: none !important; }
+
+        /* HUD */
+        #hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .status-panel { position: absolute; top: 15px; left: 15px; background: rgba(0, 0, 0, 0.6); padding: 15px; border-radius: 5px; border-left: 4px solid #0099ff; min-width: 180px; }
+        .hud-line { margin: 5px 0; font-size: 16px; font-weight: bold; }
+        .hud-pts { color: #ffcc00; }
+        .hud-hp { color: #00ff00; }
+        .hud-controls { position: absolute; left: 15px; top: 150px; display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+        .hud-btn { width: 50px; height: 50px; border-radius: 8px; border: 2px solid #fff; background-color: rgba(0,0,0,0.7); cursor: pointer; display: flex; justify-content: center; align-items: center; font-size: 24px; color: #fff; transition: 0.2s; }
+        .hud-btn:hover { transform: scale(1.1); background-color: #0099ff; }
+
+        /* MENU DE PAUSA */
+        #pauseMenu {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 200; /* Acima de tudo */
+            pointer-events: auto;
+        }
+        .pause-box {
+            background: rgba(30, 30, 30, 0.95); padding: 40px; border-radius: 10px;
+            text-align: center; border: 2px solid #fff; min-width: 300px;
+        }
+        .pause-title { font-size: 32px; font-weight: bold; margin-bottom: 30px; color: #fff; }
+        .btn-pause {
+            background: #fff; color: #000; border: none; padding: 12px; width: 100%;
+            border-radius: 5px; font-size: 18px; font-weight: bold; cursor: pointer;
+            margin-bottom: 15px; transition: 0.2s;
+        }
+        .btn-pause:hover { background: #0099ff; color: #fff; }
+        .btn-exit { background: #ff3333; color: #fff; }
+        .btn-exit:hover { background: #cc0000; }
+
+        /* Loja */
+        #shopModal {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(20, 20, 25, 0.95); border: 2px solid #ffcc00;
+            padding: 25px; border-radius: 12px; display: flex; flex-direction: column; gap: 12px;
+            pointer-events: auto; z-index: 50; box-shadow: 0 0 60px rgba(255, 200, 0, 0.3); width: 320px;
+        }
+        .shop-header { text-align: center; color: #ffcc00; margin-bottom: 10px; }
+        .shop-points { text-align: center; color: #fff; font-size: 18px; margin-bottom: 15px; }
+        .shop-item { display: flex; align-items: center; background: #111; border: 1px solid #444; border-radius: 8px; padding: 5px; cursor: pointer; transition: 0.2s; }
+        .shop-item:hover { border-color: #0099ff; background: #222; }
+        .shop-item img { width: 140px; height: auto; border-radius: 4px; }
+        .shop-info { flex: 1; padding-left: 10px; display: flex; flex-direction: column; justify-content: center; }
+        .shop-level { color: #00ffff; font-size: 14px; font-weight: bold; margin-bottom: 4px; }
+        .shop-cost { color: #00ff00; font-size: 13px; }
+        .shop-item.disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(1); }
+
+        /* Minimapa */
+        #minimap-container { position: absolute; top: 20px; right: 20px; width: 150px; height: 150px; background-color: rgba(0, 0, 0, 0.8); border: 2px solid #444; border-radius: 5px; overflow: hidden; pointer-events: auto; }
+        #minimapCanvas { width: 100%; height: 100%; display: block; }
+    </style>
+</head>
+<body>
+
+    <div id="loginScreen">
+        <div class="login-box">
+            <img src="assets/Space_Orbit.png" alt="Space Orbit" class="logo-img">
+            <input type="text" id="playerName" placeholder="NOME DO PILOTO" maxlength="12">
+            <select id="gameMode"><option value="PVE">MODO CO-OP (PVE)</option><option value="PVP">MODO ARENA (PVP)</option></select>
+            <button class="btn-neon" onclick="startGame()">DECOLAR</button>
+        </div>
+    </div>
+
+    <div id="pauseMenu" class="hidden">
+        <div class="pause-box">
+            <div class="pause-title">PAUSADO</div>
+            <button class="btn-pause" onclick="togglePause()">VOLTAR AO JOGO</button>
+            <button class="btn-pause" onclick="enterSpectatorMode()">MODO ESPECTADOR</button>
+            <button class="btn-pause btn-exit" onclick="exitGame()">SAIR PARA O MENU</button>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="hud" class="hidden">
+        <div class="status-panel">
+            <div class="hud-line">Pontos: <span id="hudScore" class="hud-pts">0</span></div>
+            <div class="hud-line">Vida: <span id="hudHp" class="hud-hp">100/100</span></div>
+            <div class="hud-line" style="margin-top:10px; font-size:14px; color:#aaa">
+                Upgrade Pts: <span id="hudUpPts" style="color:#ffcc00">0</span>
+            </div>
+        </div>
+
+        <div class="hud-controls">
+            <div class="hud-btn" onclick="toggleRegen()" title="Regenerar (R)">💚</div>
+            <div class="hud-btn" onclick="toggleShop()" title="Loja (V)">🛒</div>
+        </div>
+
+        <div id="shopModal" class="hidden">
+            <div class="shop-header">ESTAÇÃO DE UPGRADE</div>
+            <div class="shop-points">Pontos Disponíveis: <span id="shopPointsVal" style="color:#ffcc00; font-weight:bold;">0</span></div>
+            <div class="shop-item" id="btnMotor" onclick="buyUpgrade('motor')"><img src="assets/motor.png"><div class="shop-info"><div class="shop-level">Nv: 1/5</div><div class="shop-cost">Custo: 1</div></div></div>
+            <div class="shop-item" id="btnDano" onclick="buyUpgrade('dano')"><img src="assets/dano.png"><div class="shop-info"><div class="shop-level">Nv: 1/5</div><div class="shop-cost">Custo: 1</div></div></div>
+            <div class="shop-item" id="btnEscudo" onclick="buyUpgrade('escudo')"><img src="assets/escudo.png"><div class="shop-info"><div class="shop-level">Nv: 0/5</div><div class="shop-cost">Custo: 1</div></div></div>
+            <div class="shop-item" id="btnHp" onclick="buyUpgrade('max_health')"><img src="assets/hp.png"><div class="shop-info"><div class="shop-level">Nv: 1/5</div><div class="shop-cost">Custo: 1</div></div></div>
+            <div class="shop-item" id="btnAux" onclick="buyUpgrade('auxiliar')"><img src="assets/aux.png"><div class="shop-info"><div class="shop-level">Nv: 0/4</div><div class="shop-cost">Custo: 1</div></div></div>
+            <div style="text-align:center; font-size:12px; color:#aaa; margin-top:10px;">[V] para fechar</div>
+        </div>
+
+        <div id="minimap-container"><canvas id="minimapCanvas"></canvas></div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
