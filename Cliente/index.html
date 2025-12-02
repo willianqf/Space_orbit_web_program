@@ -32,7 +32,7 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0, 0, 0, 0.8);
             display: flex; flex-direction: column; justify-content: center; align-items: center;
-            z-index: 200; /* Acima de tudo */
+            z-index: 200;
             pointer-events: auto;
         }
         .pause-box {
@@ -85,9 +85,10 @@
     <div id="pauseMenu" class="hidden">
         <div class="pause-box">
             <div class="pause-title">PAUSADO</div>
-            <button class="btn-pause" onclick="togglePause()">VOLTAR AO JOGO</button>
-            <button class="btn-pause" onclick="enterSpectatorMode()">MODO ESPECTADOR</button>
-            <button class="btn-pause btn-exit" onclick="exitGame()">SAIR PARA O MENU</button>
+            <button id="btnResume" class="btn-pause" onclick="togglePause()">VOLTAR AO JOGO</button>
+            <button id="btnRespawn" class="btn-pause hidden" onclick="requestRespawn()">RENASCER</button>
+            <button id="btnSpectate" class="btn-pause" onclick="enterSpectatorMode()">MODO ESPECTADOR</button>
+            <button id="btnExit" class="btn-pause btn-exit" onclick="exitGame()">SAIR PARA O MENU</button>
         </div>
     </div>
 
@@ -114,7 +115,7 @@
             <div class="shop-item" id="btnDano" onclick="buyUpgrade('dano')"><img src="assets/dano.png"><div class="shop-info"><div class="shop-level">Nv: 1/5</div><div class="shop-cost">Custo: 1</div></div></div>
             <div class="shop-item" id="btnEscudo" onclick="buyUpgrade('escudo')"><img src="assets/escudo.png"><div class="shop-info"><div class="shop-level">Nv: 0/5</div><div class="shop-cost">Custo: 1</div></div></div>
             <div class="shop-item" id="btnHp" onclick="buyUpgrade('max_health')"><img src="assets/hp.png"><div class="shop-info"><div class="shop-level">Nv: 1/5</div><div class="shop-cost">Custo: 1</div></div></div>
-            <div class="shop-item" id="btnAux" onclick="buyUpgrade('auxiliar')"><img src="assets/aux.png"><div class="shop-info"><div class="shop-level">Nv: 0/4</div><div class="shop-cost">Custo: 1</div></div></div>
+            <div class="shop-item" id="btnAux" onclick="buyUpgrade('auxiliar')"><img src="assets/auxs.png"><div class="shop-info"><div class="shop-level">Nv: 0/4</div><div class="shop-cost">Custo: 1</div></div></div>
             <div style="text-align:center; font-size:12px; color:#aaa; margin-top:10px;">[V] para fechar</div>
         </div>
 

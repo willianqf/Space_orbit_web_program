@@ -1,4 +1,4 @@
-# server_logic.py
+# Servidor/server_logic.py
 import random
 import math
 import time
@@ -135,7 +135,8 @@ def _rotate_vector(x, y, angle_degrees):
     return x * cosa - y * sina, x * sina + y * cosa
 
 def calc_hit_angle_rad(target_x, target_y, attacker_x, attacker_y):
-    dx = attacker_x - target_x; dy = attacker_y - target_y
+    dx = attacker_x - target_x
+    dy = attacker_y - target_y
     if dx == 0 and dy == 0: return 0
     return math.atan2(dy, dx)
 
@@ -204,7 +205,7 @@ def update_player_logic(player_state, lista_alvos_busca, agora_ms, map_width, ma
     return None
 
 # ==================================================================================
-# LÓGICA DE PROJÉTEIS (HOMING SERVER-SIDE CORRIGIDO)
+# LÓGICA DE PROJÉTEIS
 # ==================================================================================
 def update_projectile_physics(proj, all_targets, agora_ms):
     # Move linearmente primeiro
@@ -299,28 +300,41 @@ def update_npc_generic_logic(npc, players_dict, agora_ms):
 
 def update_mothership_logic(npc, players_dict, agora_ms, room_ref):
     if npc.get('hp', 0) <= 0: return None
-    if (agora_ms - npc.get('ia_ultimo_hit_tempo', 0) < 1000) and npc.get('ia_alvo_retaliacao') is None:
+    
+    # CORREÇÃO IA: Usar 'ultimo_hit_tempo' (que é atualizado no server_ws.py ao levar dano)
+    tempo_ultimo_dano = npc.get('ultimo_hit_tempo', 0)
+    
+    if (agora_ms - tempo_ultimo_dano < 3000) and npc.get('ia_alvo_retaliacao') is None:
         alvo_prox = None; dist_min = float('inf')
         for p in players_dict.values():
              if p['hp'] <= 0: continue
              d = (p['x']-npc['x'])**2 + (p['y']-npc['y'])**2
              if d < dist_min: dist_min = d; alvo_prox = p
         if alvo_prox: npc['ia_alvo_retaliacao'] = alvo_prox['nome']; npc['ia_estado'] = 'RETALIANDO'
+        
     if npc.get('ia_estado') == 'VAGANDO':
         cx, cy = s.MAP_WIDTH/2, s.MAP_HEIGHT/2
         dx, dy = cx - npc['x'], cy - npc['y']
         dist = math.sqrt(dx**2 + dy**2)
         if dist > 50: npc['x'] += (dx/dist) * 0.5; npc['y'] += (dy/dist) * 0.5
+        
     elif npc.get('ia_estado') == 'RETALIANDO':
         t_id = npc.get('ia_alvo_retaliacao')
         target = next((p for p in players_dict.values() if p['nome'] == t_id and p['hp'] > 0), None)
-        if not target: npc['ia_estado'] = 'VAGANDO'; npc['ia_alvo_retaliacao'] = None
+        
+        if not target: 
+            npc['ia_estado'] = 'VAGANDO'; npc['ia_alvo_retaliacao'] = None
         else:
+            # Verifica minions vivos deste dono
             minions_vivos = [m for m in room_ref.npcs if m['tipo'] == 'minion_mothership' and m.get('owner_id') == npc['id']]
+            
+            # Se não tem minions, spawna o enxame
             if len(minions_vivos) == 0:
-                 for i in range(MAX_MINIONS_MOTHERSHIP):
-                     m = server_spawnar_minion_mothership(npc, t_id, i, MAX_MINIONS_MOTHERSHIP, room_ref.next_npc_id)
+                 for i in range(8): # MAX_MINIONS_MOTHERSHIP
+                     m = server_spawnar_minion_mothership(npc, t_id, i, 8, room_ref.next_npc_id)
                      room_ref.npcs.append(m); room_ref.next_npc_id += 1
+            
+            # Persegue o alvo lentamente
             dx, dy = npc['x'] - target['x'], npc['y'] - target['y']
             dist = math.sqrt(dx**2 + dy**2) + 0.1
             if dist < 800: npc['x'] += (dx/dist) * 1.0; npc['y'] += (dy/dist) * 1.0
@@ -328,32 +342,41 @@ def update_mothership_logic(npc, players_dict, agora_ms, room_ref):
 
 def update_boss_congelante_logic(npc, players_dict, agora_ms, room_ref):
     if npc.get('hp', 0) <= 0: return None
+    
     target = None; dist_min = float('inf')
     for p in players_dict.values():
         if p['hp'] <= 0: continue
         d = (p['x']-npc['x'])**2 + (p['y']-npc['y'])**2
         if d < dist_min: dist_min = d; target = p
     if not target: return None
+    
+    # Wander Logic
     if not npc.get('ia_wander_target') or (npc['x']-npc['ia_wander_target'][0])**2 + (npc['y']-npc['ia_wander_target'][1])**2 < 100**2:
         npc['ia_wander_target'] = (random.randint(100, s.MAP_WIDTH-100), random.randint(100, s.MAP_HEIGHT-100))
     wx, wy = npc['ia_wander_target']
     dx, dy = wx - npc['x'], wy - npc['y']
     dist = math.sqrt(dx**2 + dy**2)
     if dist > 5: npc['x'] += (dx/dist) * 1.0; npc['y'] += (dy/dist) * 1.0
-    if (agora_ms - npc.get('ia_ultimo_hit_tempo', 0) < 1000) and (agora_ms - npc.get('ia_ultimo_spawn_minion', 0) > COOLDOWN_SPAWN_MINION_CONGELANTE):
+    
+    # Spawn Logic (CORRIGIDO: Usar ultimo_hit_tempo)
+    tempo_ultimo_dano = npc.get('ultimo_hit_tempo', 0)
+    
+    if (agora_ms - tempo_ultimo_dano < 3000) and (agora_ms - npc.get('ia_ultimo_spawn_minion', 0) > 10000): # COOLDOWN_SPAWN
         minions = [m for m in room_ref.npcs if m['tipo'] == 'minion_congelante' and m.get('owner_id') == npc['id']]
-        if len(minions) < MAX_MINIONS_CONGELANTE:
+        if len(minions) < 6: # MAX_MINIONS
             npc['ia_ultimo_spawn_minion'] = agora_ms
-            m = server_spawnar_minion_congelante(npc, target['nome'], len(minions), MAX_MINIONS_CONGELANTE, room_ref.next_npc_id)
+            m = server_spawnar_minion_congelante(npc, target['nome'], len(minions), 6, room_ref.next_npc_id)
             room_ref.npcs.append(m); room_ref.next_npc_id += 1
+            
+    # Tiro Congelante
     if agora_ms - npc.get('ultimo_tiro_tempo', 0) > s.COOLDOWN_TIRO_CONGELANTE:
         npc['ultimo_tiro_tempo'] = agora_ms
         tx, ty = target['x'], target['y']
         vx, vy = tx - npc['x'], ty - npc['y']
         d_t = math.sqrt(vx**2 + vy**2) + 0.1
-        vel_x = (vx/d_t) * VELOCIDADE_PROJ_CONGELANTE
-        vel_y = (vy/d_t) * VELOCIDADE_PROJ_CONGELANTE
-        return {'id': f"{npc['id']}_{agora_ms}", 'owner_nome': npc['id'], 'x': npc['x'], 'y': npc['y'], 'pos_inicial_x': npc['x'], 'pos_inicial_y': npc['y'], 'dano': 1, 'tipo': 'npc', 'tipo_proj': 'congelante', 'velocidade': VELOCIDADE_PROJ_CONGELANTE, 'vel_x': vel_x, 'vel_y': vel_y, 'alvo_id': target['nome'], 'timestamp_criacao': agora_ms}
+        vel_x = (vx/d_t) * 8.0 # VELOCIDADE_PROJ_CONGELANTE
+        vel_y = (vy/d_t) * 8.0
+        return {'id': f"{npc['id']}_{agora_ms}", 'owner_nome': npc['id'], 'x': npc['x'], 'y': npc['y'], 'pos_inicial_x': npc['x'], 'pos_inicial_y': npc['y'], 'dano': 1, 'tipo': 'npc', 'tipo_proj': 'congelante', 'velocidade': 8.0, 'vel_x': vel_x, 'vel_y': vel_y, 'alvo_id': target['nome'], 'timestamp_criacao': agora_ms}
     return None
 
 def update_minion_logic(npc, players_dict, agora_ms, room_ref):
@@ -410,17 +433,29 @@ def server_spawnar_boss_congelante(x, y, npc_id): return {'id': npc_id, 'tipo': 
 def server_spawnar_minion_mothership(owner, target_id, index, max_minions, npc_id_num): return {'id': f"minion_ms_{npc_id_num}", 'tipo': 'minion_mothership', 'owner_id': owner['id'], 'x': owner['x'], 'y': owner['y'], 'angulo': 0.0, 'hp': 2, 'max_hp': 2, 'tamanho': 15, 'pontos_por_morte': 1, 'cooldown_tiro': 1000, 'ultimo_tiro_tempo': 0, 'ia_alvo_id': target_id, 'ia_raio_orbita': owner['tamanho'] * 0.8 + random.randint(30, 60), 'ia_angulo_orbita': (index / max_minions) * 360, 'ia_vel_orbita': random.uniform(0.5, 1.0) }
 def server_spawnar_minion_congelante(owner, target_id, index, max_minions, npc_id_num): return {'id': f"minion_bc_{npc_id_num}", 'tipo': 'minion_congelante', 'owner_id': owner['id'], 'x': owner['x'], 'y': owner['y'], 'angulo': 0.0, 'hp': HP_MINION_CONGELANTE, 'max_hp': HP_MINION_CONGELANTE, 'tamanho': 18, 'pontos_por_morte': PONTOS_MINION_CONGELANTE, 'cooldown_tiro': COOLDOWN_TIRO_MINION_CONGELANTE, 'ultimo_tiro_tempo': 0, 'ia_alvo_id': target_id, 'ia_raio_orbita': owner['tamanho'] * 0.7 + random.randint(30, 50), 'ia_angulo_orbita': (index / max_minions) * 360, 'ia_vel_orbita': random.uniform(0.5, 1.0) }
 
+# --- CORREÇÃO: HP BAIXO PARA 1-HIT KILL ---
 def server_spawnar_obstaculo(pos_referencia_lista, map_width, map_height, npc_id):
-    # Usa a função de spawn existente para achar uma posição vazia
     x, y = server_calcular_posicao_spawn(pos_referencia_lista, map_width, map_height)
     raio = random.randint(s.OBSTACULO_RAIO_MIN, s.OBSTACULO_RAIO_MAX)
-    # Retorna um dicionário representando o obstáculo
+    
+    # Cálculo proporcional de pontos (mantido)
+    raio_norm = max(s.OBSTACULO_RAIO_MIN, min(raio, s.OBSTACULO_RAIO_MAX))
+    range_r = s.OBSTACULO_RAIO_MAX - s.OBSTACULO_RAIO_MIN
+    range_p = s.OBSTACULO_PONTOS_MAX - s.OBSTACULO_PONTOS_MIN
+    pct = 0.0
+    if range_r > 0: pct = (raio_norm - s.OBSTACULO_RAIO_MIN) / range_r
+    pts = int(round(s.OBSTACULO_PONTOS_MIN + (pct * range_p)))
+    
+    # MODIFICAÇÃO: HP fixado em 0.1 para garantir que qualquer tiro destrua
+    hp_calculado = 0.1 
+    
     return {
         'id': npc_id,
         'tipo': 'obstaculo',
         'x': float(x),
         'y': float(y),
         'raio': raio,
-        'hp': 999, # Obstáculos são imortais ou tem muito HP por enquanto
-        'pontos_por_morte': 0
+        'hp': hp_calculado,
+        'max_hp': hp_calculado,
+        'pontos_por_morte': pts
     }
