@@ -70,7 +70,8 @@ MAX_AUXILIARES = 4
 CUSTOS_AUXILIARES = s.CUSTOS_AUXILIARES
 AUX_POSICOES = [(-40, 20), (40, 20), (-50, -10), (50, -10)]
 AUX_COOLDOWN_TIRO = 1000 
-AUX_DISTANCIA_TIRO_SQ = 600**2 
+# AUMENTADO PARA IGUALAR O LOCK (1000px)
+AUX_DISTANCIA_TIRO_SQ = 1000**2 
 
 # Upgrades
 MAX_TOTAL_UPGRADES = s.MAX_TOTAL_UPGRADES
@@ -99,14 +100,12 @@ def server_ganhar_pontos(player_state, quantidade):
             if player_state['_indice_limiar'] < len(PONTOS_LIMIARES_PARA_UPGRADE):
                 player_state['_limiar_pontos_atual'] = PONTOS_LIMIARES_PARA_UPGRADE[player_state['_indice_limiar']]
 
-# --- CORREÇÃO LÓGICA DE COMPRA ---
 def server_comprar_upgrade(player_state, tipo_upgrade):
     is_pvp = player_state.get('is_pvp', False)
     limite_total = pvp_s.PONTOS_ATRIBUTOS_INICIAIS if is_pvp else MAX_TOTAL_UPGRADES
     
     if player_state['pontos_upgrade_disponiveis'] <= 0: return
 
-    # Função auxiliar para verificar se a compra estoura o limite
     def pode_comprar(custo_em_slots):
         return (player_state['total_upgrades_feitos'] + custo_em_slots) <= limite_total
 
@@ -132,10 +131,9 @@ def server_comprar_upgrade(player_state, tipo_upgrade):
         if num < MAX_AUXILIARES:
             c_aux = CUSTOS_AUXILIARES[num] 
             if player_state['pontos_upgrade_disponiveis'] >= c_aux:
-                # AQUI: Verifica se o custo da Auxiliar cabe no limite total
                 if pode_comprar(c_aux):
                     player_state['pontos_upgrade_disponiveis'] -= c_aux
-                    player_state['total_upgrades_feitos'] += c_aux # Consome N slots
+                    player_state['total_upgrades_feitos'] += c_aux 
                     player_state['nivel_aux'] += 1
                     comprou = True
 
@@ -176,8 +174,16 @@ def calc_hit_angle_rad(target_x, target_y, attacker_x, attacker_y):
     return math.atan2(dy, dx)
 
 def update_player_logic(player_state, lista_alvos_busca, agora_ms, map_width, map_height, dt=1.0): 
-    if agora_ms < player_state.get('tempo_fim_congelamento', 0): player_state['alvo_mouse'] = None; return None
-    if player_state.get('is_pre_match', False): player_state['alvo_mouse'] = None; return None
+    # Congelamento PVP pré-partida (Impede movimento e tiro)
+    if player_state.get('is_pre_match', False): 
+        player_state['alvo_mouse'] = None
+        player_state['teclas'] = {'w':False,'a':False,'s':False,'d':False,'space':False}
+        return None 
+
+    if agora_ms < player_state.get('tempo_fim_congelamento', 0): 
+        player_state['alvo_mouse'] = None
+        return None
+    
     is_lento = agora_ms < player_state.get('tempo_fim_lentidao', 0)
 
     if player_state['alvo_lock']:
@@ -240,6 +246,54 @@ def update_player_logic(player_state, lista_alvos_busca, agora_ms, map_width, ma
         return proj
     return None
 
+def process_auxiliaries_logic(p, living_targets, agora_ms):
+    """
+    Processa a lógica de tiro das naves auxiliares (Drones).
+    Retorna uma lista de novos projéteis criados.
+    """
+    new_projs = []
+    if p.get('nivel_aux', 0) > 0 and p.get('alvo_lock'):
+        t_id = p['alvo_lock']
+        target = next((x for x in living_targets if x.get('id', x.get('nome')) == t_id), None)
+        
+        if target and target.get('hp', 0) > 0:
+            for i in range(p['nivel_aux']):
+                while len(p['aux_cooldowns']) <= i: p['aux_cooldowns'].append(0)
+                
+                if agora_ms > p['aux_cooldowns'][i]:
+                    off_x, off_y = _rotate_vector(AUX_POSICOES[i][0], AUX_POSICOES[i][1], -p['angulo'])
+                    ax, ay = p['x'] + off_x, p['y'] + off_y
+                    
+                    dist_sq = (ax - target['x'])**2 + (ay - target['y'])**2
+                    
+                    # Usa a constante aumentada para garantir tiro
+                    if dist_sq < AUX_DISTANCIA_TIRO_SQ:
+                        p['aux_cooldowns'][i] = agora_ms + AUX_COOLDOWN_TIRO
+                        
+                        dist = math.sqrt(dist_sq)
+                        dir_x = (target['x'] - ax) / dist if dist > 0 else 0
+                        dir_y = (target['y'] - ay) / dist if dist > 0 else -1
+                        
+                        tipo_aux = 'player_pvp' if p.get('is_pvp') else 'player_pve'
+                        if p['nivel_dano'] >= s.MAX_NIVEL_DANO: tipo_aux += '_max'
+                        
+                        proj = {
+                            'id': f"{p['nome']}_aux{i}_{agora_ms}", 
+                            'owner_nome': p['nome'], 
+                            'x': ax, 'y': ay, 
+                            'pos_inicial_x': ax, 'pos_inicial_y': ay, 
+                            'dano': s.DANO_POR_NIVEL[p['nivel_dano']], 
+                            'tipo': tipo_aux, 
+                            'tipo_proj': 'teleguiado', 
+                            'velocidade': 14, 
+                            'alvo_id': t_id, 
+                            'timestamp_criacao': agora_ms, 
+                            'vel_x': dir_x * 14, 
+                            'vel_y': dir_y * 14
+                        }
+                        new_projs.append(proj)
+    return new_projs
+
 def update_projectile_physics(proj, all_targets, agora_ms, dt=1.0):
     proj['x'] += proj.get('vel_x', 0) * dt
     proj['y'] += proj.get('vel_y', 0) * dt
@@ -277,6 +331,7 @@ def update_projectile_physics(proj, all_targets, agora_ms, dt=1.0):
         else:
             proj['tipo_proj'] = 'normal'
 
+# --- LÓGICA DE NPCs (MANTIDA IDÊNTICA AO PVE) ---
 def update_npc_generic_logic(npc, players_dict, agora_ms, dt=1.0):
     if npc.get('hp', 0) <= 0: return None
     players_pos_lista = [(p['x'], p['y']) for p in players_dict.values() if p['hp'] > 0]

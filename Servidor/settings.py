@@ -60,7 +60,9 @@ PONTOS_SCORE_PARA_MUDAR_LIMIAR = [500, 2000]
 CUSTOS_AUXILIARES = [1, 2, 3, 4]
 
 DANO_POR_NIVEL = [0, 0.7, 0.9, 1.2, 1.4, 1.6] 
-VIDA_POR_NIVEL = [0, 5, 6, 8, 9, 10] 
+
+# --- ALTERAÇÃO AQUI: Vida inicial 10 e escalando ---
+VIDA_POR_NIVEL = [0, 10, 12, 16, 18, 20] 
 
 PRETO = (0, 0, 0)
 BRANCO = (255, 255, 255)
@@ -133,5 +135,4 @@ NUM_ESTRELAS = 10000
 VELOCIDADE_TIRO = 45
 FOCO_TIRO = 0.2
 
-# AQUI: Diminuí o offset para 0 para corrigir o "tiro saindo longe"
 OFFSET_PONTA_TIRO = 0
