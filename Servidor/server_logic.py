@@ -18,10 +18,7 @@ MAX_PLAYERS_PVP = pvp_s.MAX_JOGADORES_PVP
 
 AOI_RADIUS_SQ = 3500**2 
 
-# --- CORREÇÃO DE COLISÃO ---
-# Reduzido raio de 15 para 10 para o jogador na colisão de projétil
-# Antes: (15 + 5)**2 = 400. Agora: (10 + 5)**2 = 225.
-# Isso permite que o projétil entre visualmente mais na nave antes de sumir.
+# Constantes de Distância e Física
 COLISAO_JOGADOR_PROJ_DIST_SQ = (10 + 5)**2
 COLISAO_JOGADOR_NPC_DIST_SQ = (15 + 15)**2 
 NPC_DETECTION_RANGE_SQ = (3000 ** 2)
@@ -36,7 +33,7 @@ SPAWN_PROTECTION_MS = 3000
 
 # Constantes Gerais
 COOLDOWN_TIRO = 250 
-OFFSET_PONTA_TIRO = s.OFFSET_PONTA_TIRO # Usa o valor do settings (que mudamos para 0)
+OFFSET_PONTA_TIRO = s.OFFSET_PONTA_TIRO 
 VELOCIDADE_PERSEGUIDOR = 2.0 
 DISTANCIA_PARAR_PERSEGUIDOR_SQ = 200**2 
 SPAWN_DIST_MIN = s.SPAWN_DIST_MIN
@@ -84,12 +81,9 @@ PONTOS_LIMIARES_PARA_UPGRADE = s.PONTOS_LIMIARES_PARA_UPGRADE[:]
 PONTOS_SCORE_PARA_MUDAR_LIMIAR = s.PONTOS_SCORE_PARA_MUDAR_LIMIAR[:]
 VIDA_POR_NIVEL = s.VIDA_POR_NIVEL
 
-# ... (O RESTO DO CÓDIGO PERMANECE IDÊNTICO, POIS JÁ FIZEMOS O SUPORTE AO DT ANTES) ...
-# Apenas copiei as constantes modificadas acima. O resto das funções (server_ganhar_pontos, etc)
-# não precisa ser alterado se você já aplicou a atualização anterior do DT.
-# Se precisar do arquivo COMPLETO novamente, me avise, mas a mudança crítica está nas constantes acima.
-
-# Para garantir a compatibilidade, aqui estão as funções que usam OFFSET_PONTA_TIRO atualizado:
+# ==================================================================================
+# 2. FUNÇÕES AUXILIARES E LÓGICA DE JOGO
+# ==================================================================================
 
 def server_ganhar_pontos(player_state, quantidade):
     if quantidade <= 0: return
@@ -105,26 +99,61 @@ def server_ganhar_pontos(player_state, quantidade):
             if player_state['_indice_limiar'] < len(PONTOS_LIMIARES_PARA_UPGRADE):
                 player_state['_limiar_pontos_atual'] = PONTOS_LIMIARES_PARA_UPGRADE[player_state['_indice_limiar']]
 
+# --- CORREÇÃO LÓGICA DE COMPRA ---
 def server_comprar_upgrade(player_state, tipo_upgrade):
     is_pvp = player_state.get('is_pvp', False)
     limite_total = pvp_s.PONTOS_ATRIBUTOS_INICIAIS if is_pvp else MAX_TOTAL_UPGRADES
+    
     if player_state['pontos_upgrade_disponiveis'] <= 0: return
-    if player_state['total_upgrades_feitos'] >= limite_total: return
-    custo = 1; comprou = False
+
+    # Função auxiliar para verificar se a compra estoura o limite
+    def pode_comprar(custo_em_slots):
+        return (player_state['total_upgrades_feitos'] + custo_em_slots) <= limite_total
+
+    custo_padrao = 1
+    comprou = False
+
     if tipo_upgrade == "motor" and player_state['nivel_motor'] < MAX_NIVEL_MOTOR:
-        player_state['pontos_upgrade_disponiveis'] -= custo; player_state['total_upgrades_feitos'] += 1; player_state['nivel_motor'] += 1; comprou = True
+        if pode_comprar(custo_padrao):
+            player_state['pontos_upgrade_disponiveis'] -= custo_padrao
+            player_state['total_upgrades_feitos'] += custo_padrao
+            player_state['nivel_motor'] += 1
+            comprou = True
+
     elif tipo_upgrade == "dano" and player_state['nivel_dano'] < MAX_NIVEL_DANO:
-        player_state['pontos_upgrade_disponiveis'] -= custo; player_state['total_upgrades_feitos'] += 1; player_state['nivel_dano'] += 1; comprou = True
+        if pode_comprar(custo_padrao):
+            player_state['pontos_upgrade_disponiveis'] -= custo_padrao
+            player_state['total_upgrades_feitos'] += custo_padrao
+            player_state['nivel_dano'] += 1
+            comprou = True
+
     elif tipo_upgrade == "auxiliar":
         num = player_state['nivel_aux']
         if num < MAX_AUXILIARES:
             c_aux = CUSTOS_AUXILIARES[num] 
             if player_state['pontos_upgrade_disponiveis'] >= c_aux:
-                player_state['pontos_upgrade_disponiveis'] -= c_aux; player_state['total_upgrades_feitos'] += 1; player_state['nivel_aux'] += 1; comprou = True
+                # AQUI: Verifica se o custo da Auxiliar cabe no limite total
+                if pode_comprar(c_aux):
+                    player_state['pontos_upgrade_disponiveis'] -= c_aux
+                    player_state['total_upgrades_feitos'] += c_aux # Consome N slots
+                    player_state['nivel_aux'] += 1
+                    comprou = True
+
     elif tipo_upgrade == "max_health" and player_state['nivel_max_vida'] < len(s.VIDA_POR_NIVEL) - 1:
-        player_state['pontos_upgrade_disponiveis'] -= custo; player_state['total_upgrades_feitos'] += 1; player_state['nivel_max_vida'] += 1; player_state['max_hp'] = s.VIDA_POR_NIVEL[player_state['nivel_max_vida']]; player_state['hp'] += 1; comprou = True
+        if pode_comprar(custo_padrao):
+            player_state['pontos_upgrade_disponiveis'] -= custo_padrao
+            player_state['total_upgrades_feitos'] += custo_padrao
+            player_state['nivel_max_vida'] += 1
+            player_state['max_hp'] = s.VIDA_POR_NIVEL[player_state['nivel_max_vida']]
+            player_state['hp'] += 1
+            comprou = True
+
     elif tipo_upgrade == "escudo" and player_state['nivel_escudo'] < MAX_NIVEL_ESCUDO:
-        player_state['pontos_upgrade_disponiveis'] -= custo; player_state['total_upgrades_feitos'] += 1; player_state['nivel_escudo'] += 1; comprou = True
+        if pode_comprar(custo_padrao):
+            player_state['pontos_upgrade_disponiveis'] -= custo_padrao
+            player_state['total_upgrades_feitos'] += custo_padrao
+            player_state['nivel_escudo'] += 1
+            comprou = True
 
 def server_calcular_posicao_spawn(pos_referencia_lista, map_width, map_height):
     for _ in range(20):
@@ -188,7 +217,6 @@ def update_player_logic(player_state, lista_alvos_busca, agora_ms, map_width, ma
         
         player_state['ultimo_tiro_tempo'] = agora_ms
         rad = math.radians(player_state['angulo'])
-        # AQUI FOI ALTERADO:
         sx = player_state['x'] + (-math.sin(rad) * OFFSET_PONTA_TIRO)
         sy = player_state['y'] + (-math.cos(rad) * OFFSET_PONTA_TIRO)
         
@@ -408,7 +436,6 @@ def update_minion_logic(npc, players_dict, agora_ms, room_ref, dt=1.0):
              return {'id': f"{npc['id']}_{agora_ms}", 'owner_nome': npc['id'], 'x': npc['x'], 'y': npc['y'], 'pos_inicial_x': npc['x'], 'pos_inicial_y': npc['y'], 'dano': 1, 'tipo': 'npc', 'tipo_proj': 'normal', 'velocidade': VELOCIDADE_PROJETIL_NPC, 'vel_x': vel_x, 'vel_y': vel_y, 'angulo_rad': rad_tiro}
     return None
 
-# ... (FUNÇÕES DE SPAWN MANTIDAS IGUAIS) ...
 def server_spawnar_inimigo_aleatorio(x, y, npc_id):
     chance = random.random(); tipo = "perseguidor"; hp = 3; max_hp = 3; tamanho = 30; cooldown_tiro = COOLDOWN_TIRO_PERSEGUIDOR; pontos = 5
     if chance < 0.05: tipo = "bomba"; hp, max_hp = 1, 1; tamanho = 25; cooldown_tiro = 999999; pontos = 3

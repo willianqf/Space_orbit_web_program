@@ -144,7 +144,6 @@ function backToModeSelect() {
 
 function startGame() {
     const name = document.getElementById('playerName').value || "Piloto";
-    // Usa a variável global em vez do select antigo
     const mode = selectedGameMode; 
     
     loginScreen.classList.add('hidden');
@@ -220,18 +219,32 @@ function updateHud() {
     document.getElementById('hudUpPts').innerText = p.pts_up;
     document.getElementById('shopPointsVal').innerText = p.pts_up;
     
-    let totalUpgrades = (p.nv_motor - 1) + (p.nv_dano - 1) + (p.nv_hp - 1) + p.nv_escudo + p.nv_aux;
+    // --- CORREÇÃO: CÁLCULO DE UPGRADES TOTAIS ---
+    // Soma custos das auxiliares compradas
+    let auxPointsUsed = 0;
+    for(let i=0; i < p.nv_aux; i++) {
+        if(i < AUX_COSTS.length) auxPointsUsed += AUX_COSTS[i];
+    }
+
+    // Total = Upgrades unitários (Motor, Dano, Hp, Escudo) + Custo acumulado das auxiliares
+    let totalUpgrades = (p.nv_motor - 1) + (p.nv_dano - 1) + (p.nv_hp - 1) + p.nv_escudo + auxPointsUsed;
     const MAX_TOTAL = 10;
     document.getElementById('shopLimitVal').innerText = totalUpgrades;
     
+    // Limite genérico (usado para itens de custo 1)
     let limitReached = totalUpgrades >= MAX_TOTAL;
-    let auxCost = (p.nv_aux < 4) ? AUX_COSTS[p.nv_aux] : 0;
-    
+
+    // Limite específico para próxima Auxiliar (custo variável)
+    let nextAuxCost = (p.nv_aux < 4) ? AUX_COSTS[p.nv_aux] : 0;
+    let auxLimitReached = (totalUpgrades + nextAuxCost) > MAX_TOTAL;
+
     updateShopItem('btnMotor', p.nv_motor, 5, 1, p.pts_up, limitReached);
     updateShopItem('btnDano', p.nv_dano, 5, 1, p.pts_up, limitReached);
     updateShopItem('btnEscudo', p.nv_escudo, 5, 1, p.pts_up, limitReached);
     updateShopItem('btnHp', p.nv_hp, 5, 1, p.pts_up, limitReached);
-    updateShopItem('btnAux', p.nv_aux, 4, auxCost, p.pts_up, limitReached); 
+    
+    // Passa a verificação específica para o botão Auxiliar
+    updateShopItem('btnAux', p.nv_aux, 4, nextAuxCost, p.pts_up, auxLimitReached); 
 }
 
 function updateShopItem(elemId, currentLvl, maxLvl, cost, playerPts, limitReached) {
@@ -243,6 +256,7 @@ function updateShopItem(elemId, currentLvl, maxLvl, cost, playerPts, limitReache
         lvlDiv.innerText = "MAX"; lvlDiv.style.color = "#ff00ff"; costDiv.innerText = "-"; el.classList.add('disabled');
     } else {
         lvlDiv.innerText = `Nv: ${currentLvl}/${maxLvl}`; lvlDiv.style.color = "#00ffff"; costDiv.innerText = `Custo: ${cost}`;
+        
         if (playerPts < cost || limitReached) {
             el.classList.add('disabled');
         } else {
