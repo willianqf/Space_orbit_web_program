@@ -420,7 +420,7 @@ async def handler(websocket):
             'hp': hp_init, 'max_hp': hp_init, 'teclas': {'w':False,'a':False,'s':False,'d':False,'space':False},
             'alvo_mouse': None, 'alvo_lock': None, 'pontos': 0, 'cooldown_tiro': COOLDOWN_TIRO, 'ultimo_tiro_tempo': 0,
             'nivel_motor': 1, 'nivel_dano': 1, 'nivel_max_vida': 1, 'nivel_escudo': 0,
-            'pontos_upgrade_disponiveis': 10, 'total_upgrades_feitos': 0,
+            'pontos_upgrade_disponiveis': upgrade_pts, 'total_upgrades_feitos': 0,
             'nivel_aux': 0, 'aux_cooldowns': [0]*4, 'is_bot': False, 'esta_regenerando': False,
             'is_pvp': (mode == "PVP"),
             '_pontos_acumulados_para_upgrade': 0, '_limiar_pontos_atual': PONTOS_LIMIARES_PARA_UPGRADE[0], '_indice_limiar': 0
@@ -466,7 +466,7 @@ async def handler(websocket):
                         p_state['x'] = spawn_x; p_state['y'] = spawn_y
                         hp_init = float(s.VIDA_POR_NIVEL[1])
                         p_state['nivel_max_vida'] = 1; p_state['max_hp'] = hp_init; p_state['hp'] = hp_init
-                        p_state['pontos'] = 0; p_state['pontos_upgrade_disponiveis'] = 10; p_state['total_upgrades_feitos'] = 0
+                        p_state['pontos'] = 0; p_state['pontos_upgrade_disponiveis'] = 0; p_state['total_upgrades_feitos'] = 0
                         p_state['nivel_motor'] = 1; p_state['nivel_dano'] = 1; p_state['nivel_escudo'] = 0; p_state['nivel_aux'] = 0
                         p_state['alvo_lock'] = None; p_state['alvo_mouse'] = None
                         p_state['esta_regenerando'] = False 
