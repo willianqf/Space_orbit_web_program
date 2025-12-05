@@ -130,6 +130,34 @@ function spawnExplosionParticles(x, y, color) {
         particles.push({ x: x, y: y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, life: 1.0, size: 4+Math.random()*4, color: color });
     }
 }
+
+/**
+ * NOVO: Gera uma explosão muito maior (~400px de diâmetro) para o Kamikaze.
+ */
+function spawnKamikazeExplosion(x, y) {
+    const PARTICLE_COUNT = 150; // Mais partículas para um efeito visual maior
+    const MAX_SPEED = 20;      // Velocidade inicial maior para dispersão
+    const MAX_SIZE = 10;       // Tamanho inicial da partícula maior
+    
+    for (let i = 0; i < PARTICLE_COUNT; i++) { 
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 5 + Math.random() * MAX_SPEED; 
+        
+        // Cores de explosão amarela/laranja
+        let color = Math.random() > 0.5 ? '#ffff00' : '#ffaa00'; 
+        
+        particles.push({ 
+            x: x, 
+            y: y, 
+            vx: Math.cos(angle) * speed, 
+            vy: Math.sin(angle) * speed, 
+            life: 1.0, 
+            size: 5 + Math.random() * MAX_SIZE, 
+            color: color 
+        });
+    }
+}
+
 function spawnEngineParticles(x, y, angle) {
     if (isNaN(angle)) return;
     const rad = (angle * Math.PI) / 180;
@@ -644,7 +672,8 @@ function draw() {
     // NPCs
     if (gameState.npcs) {
         gameState.npcs.forEach(npc => {
-            if (!visualState.npcs[npc.id]) { visualState.npcs[npc.id] = { x: npc.x, y: npc.y, angle: npc.angle }; }
+            // MUDANÇA 1 (já implementada): Armazena o tipo do NPC no estado visual
+            if (!visualState.npcs[npc.id]) { visualState.npcs[npc.id] = { x: npc.x, y: npc.y, angle: npc.angle, type: npc.type }; }
             else { let v = visualState.npcs[npc.id]; v.x = lerp(v.x, npc.x, lerpFactor); v.y = lerp(v.y, npc.y, lerpFactor); v.angle = lerpAngle(v.angle, npc.angle, lerpFactor); }
             let v = visualState.npcs[npc.id]; const screenX = v.x - camX; const screenY = v.y - camY;
             if (screenX < -200 || screenX > canvas.width + 200 || screenY < -200 || screenY > canvas.height + 200) return;
@@ -661,7 +690,21 @@ function draw() {
             }
             ctx.restore();
         });
-        for (let id in visualState.npcs) { if (!gameState.npcs.find(n => n.id === id)) { let v = visualState.npcs[id]; spawnExplosionParticles(v.x, v.y, '#ff5500'); delete visualState.npcs[id]; } }
+        for (let id in visualState.npcs) { 
+            if (!gameState.npcs.find(n => n.id === id)) { 
+                let v = visualState.npcs[id]; 
+                
+                // MUDANÇA 2: Usa a função de explosão grande se for Kamikaze ('bomba')
+                if (v.type === 'bomba') {
+                    spawnKamikazeExplosion(v.x, v.y);
+                } else {
+                    let explColor = '#ff5500'; // Cor padrão para NPCs
+                    spawnExplosionParticles(v.x, v.y, explColor); // Chama a explosão pequena padrão
+                }
+                
+                delete visualState.npcs[id]; 
+            } 
+        }
     }
     gameState.projectiles.forEach(p => {
         let v = visualState.projectiles[p.id]; if (!v) return;

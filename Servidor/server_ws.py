@@ -16,7 +16,7 @@ from server_logic import (
     server_spawnar_inimigo_aleatorio, server_spawnar_mothership, 
     server_spawnar_boss_congelante, server_spawnar_minion_mothership,
     server_spawnar_minion_congelante, server_spawnar_obstaculo, server_ganhar_pontos,
-    process_auxiliaries_logic,
+    process_auxiliaries_logic, 
     COOLDOWN_TIRO, MAX_PLAYERS_PVE, MAX_PLAYERS_PVP, REGEN_TICK_RATE_MS, 
     REGEN_POR_TICK, PONTOS_LIMIARES_PARA_UPGRADE, VIDA_POR_NIVEL, 
     MAX_DISTANCIA_TIRO_SQ, REDUCAO_DANO_POR_NIVEL, COLISAO_JOGADOR_PROJ_DIST_SQ,
@@ -78,6 +78,7 @@ class PveRoom(GameRoom):
     def update(self, dt_multiplier=1.0):
         self.agora_ms = int(time.time() * 1000)
         
+        # --- SPAWN DE NPCS ---
         count_normais = sum(1 for n in self.npcs if n.get('hp') > 0 and n['tipo'] not in ['mothership', 'boss_congelante', 'minion_mothership', 'minion_congelante', 'obstaculo'])
         count_motherships = sum(1 for n in self.npcs if n.get('hp') > 0 and n['tipo'] == 'mothership')
         count_bosses = sum(1 for n in self.npcs if n.get('hp') > 0 and n['tipo'] == 'boss_congelante')
@@ -99,6 +100,7 @@ class PveRoom(GameRoom):
             sx, sy = server_calcular_posicao_spawn(refs, s.MAP_WIDTH, s.MAP_HEIGHT)
             boss['x'], boss['y'] = sx, sy; self.npcs.append(boss); self.next_npc_id += 1
 
+        # --- GERENCIAMENTO DE BOTS ---
         humanos_count = len(self.clients)
         slots_para_bots = max(0, 10 - humanos_count)
         target_bots = min(s.MAX_BOTS, slots_para_bots)
@@ -107,7 +109,11 @@ class PveRoom(GameRoom):
             key_to_delete = next((k for k, v in self.players.items() if v['nome'] == bot_key and v.get('is_bot')), None)
             if key_to_delete: del self.players[key_to_delete]
 
+        # --- LÓGICA DO JOGO ---
         self._update_game_logic(dt_multiplier)
+        
+        # Limpeza final de NPCs mortos (incluindo Kamikazes que explodiram em server_logic)
+        self.npcs[:] = [n for n in self.npcs if n.get('hp') > 0]
 
     def _update_game_logic(self, dt):
         living_players = [p for p in self.players.values() if p.get('hp') > 0]
@@ -152,6 +158,7 @@ class PveRoom(GameRoom):
             if not (0 <= proj['x'] <= s.MAP_WIDTH and 0 <= proj['y'] <= s.MAP_HEIGHT): toremove_proj.append(proj); continue
 
             hit = False
+            # Colisão com Obstáculos
             for obs in self.obstaculos:
                 if obs in toremove_obs: continue
                 if (obs['x'] - proj['x'])**2 + (obs['y'] - proj['y'])**2 < (obs['raio'] + 5)**2:
@@ -163,27 +170,44 @@ class PveRoom(GameRoom):
                     break
             if hit: toremove_proj.append(proj); continue
 
+            # Colisão com Jogadores (PVE - Friendly Fire ou PVP misto)
             if proj['tipo'].startswith('player') or proj['tipo'] == 'npc':
                 for target in living_players:
                     if target['nome'] == proj['owner_nome']: continue
                     if (target['x'] - proj['x'])**2 + (target['y'] - proj['y'])**2 < COLISAO_JOGADOR_PROJ_DIST_SQ:
                         dano = proj['dano']
                         reducao = min(target['nivel_escudo'] * REDUCAO_DANO_POR_NIVEL, 75) / 100.0
+                        
+                        # --- APLICAÇÃO DE DANO E RECOMPENSA DE PONTOS ---
+                        old_hp = target['hp']
                         target['hp'] -= dano * (1.0 - reducao)
                         target['ultimo_hit_tempo'] = self.agora_ms
                         target['esta_regenerando'] = False
                         
-                        # --- CALCULO DO ANGULO DE IMPACTO NO PVE ---
+                        # Se matou o alvo
+                        if old_hp > 0 and target['hp'] <= 0:
+                            # Verifica se o dono do tiro é um jogador para dar a recompensa
+                            if proj['tipo'].startswith('player'):
+                                killer_name = proj['owner_nome']
+                                # Busca o objeto do killer
+                                killer = next((p for p in self.players.values() if p['nome'] == killer_name), None)
+                                if killer:
+                                    recompensa = int(target['pontos'] * 0.8) # 80% dos pontos
+                                    if recompensa > 0:
+                                        server_ganhar_pontos(killer, recompensa)
+                        # -----------------------------------------------
+
+                        # Efeito visual de escudo
                         if target['nivel_escudo'] >= s.MAX_NIVEL_ESCUDO:
                             dx = proj['x'] - target['x']
                             dy = proj['y'] - target['y']
                             angle = math.atan2(dy, dx)
                             target['shield_hit'] = {'time': self.agora_ms, 'angle': angle}
-                        # -------------------------------------------
                         
                         hit = True; break
             if hit: toremove_proj.append(proj); continue
 
+            # Colisão com NPCs
             if proj['tipo'].startswith('player'):
                 for npc in self.npcs:
                     if npc.get('hp') <= 0: continue
@@ -199,7 +223,7 @@ class PveRoom(GameRoom):
 
         for p in toremove_proj: 
             if p in self.projectiles: self.projectiles.remove(p)
-        self.npcs[:] = [n for n in self.npcs if n.get('hp') > 0]
+        
         for obs in toremove_obs:
             if obs in self.obstaculos: self.obstaculos.remove(obs)
 
@@ -315,16 +339,28 @@ class PvpRoom(GameRoom):
                     if (target['x'] - proj['x'])**2 + (target['y'] - proj['y'])**2 < COLISAO_JOGADOR_PROJ_DIST_SQ:
                         dano = proj['dano']
                         reducao = min(target['nivel_escudo'] * REDUCAO_DANO_POR_NIVEL, 75) / 100.0
+                        
+                        # --- APLICAÇÃO DE DANO E RECOMPENSA PVP ---
+                        old_hp = target['hp']
                         target['hp'] -= dano * (1.0 - reducao)
                         target['ultimo_hit_tempo'] = self.agora_ms
                         
-                        # --- CALCULO DO ANGULO DE IMPACTO NO PVP ---
+                        # Se matou o alvo
+                        if old_hp > 0 and target['hp'] <= 0:
+                            if proj['tipo'].startswith('player'):
+                                killer_name = proj['owner_nome']
+                                killer = next((p for p in self.players.values() if p['nome'] == killer_name), None)
+                                if killer:
+                                    recompensa = int(target['pontos'] * 0.8)
+                                    if recompensa > 0:
+                                        server_ganhar_pontos(killer, recompensa)
+                        # ------------------------------------------
+
                         if target['nivel_escudo'] >= s.MAX_NIVEL_ESCUDO: 
                             dx = proj['x'] - target['x']
                             dy = proj['y'] - target['y']
                             angle = math.atan2(dy, dx)
                             target['shield_hit'] = {'time': self.agora_ms, 'angle': angle}
-                        # -------------------------------------------
 
                         toremove_proj.append(proj); break
         for p in toremove_proj:
@@ -420,7 +456,7 @@ async def handler(websocket):
             'hp': hp_init, 'max_hp': hp_init, 'teclas': {'w':False,'a':False,'s':False,'d':False,'space':False},
             'alvo_mouse': None, 'alvo_lock': None, 'pontos': 0, 'cooldown_tiro': COOLDOWN_TIRO, 'ultimo_tiro_tempo': 0,
             'nivel_motor': 1, 'nivel_dano': 1, 'nivel_max_vida': 1, 'nivel_escudo': 0,
-            'pontos_upgrade_disponiveis': upgrade_pts, 'total_upgrades_feitos': 0,
+            'pontos_upgrade_disponiveis': 10 if mode == "PVP" else 0, 'total_upgrades_feitos': 0,
             'nivel_aux': 0, 'aux_cooldowns': [0]*4, 'is_bot': False, 'esta_regenerando': False,
             'is_pvp': (mode == "PVP"),
             '_pontos_acumulados_para_upgrade': 0, '_limiar_pontos_atual': PONTOS_LIMIARES_PARA_UPGRADE[0], '_indice_limiar': 0
