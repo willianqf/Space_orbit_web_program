@@ -346,6 +346,11 @@ function requestRespawn() {
         socket.send(JSON.stringify({ type: "RESPAWN" })); 
         propulsorCooldownEnd = 0;
         updatePropellerButtonState();
+        
+        // CORREÇÃO: Fecha o menu de pausa se estiver aberto
+        if (isPaused) {
+            togglePause();
+        }
     } 
 }
 function exitGame() { if (socket) socket.close(); resetClientState(); }
