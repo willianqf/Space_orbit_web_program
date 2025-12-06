@@ -11,7 +11,7 @@ INPUT_RATE = 5        # Inputs por segundo para manter a conexão ativa
 
 # Capacidade definida em server_logic.py
 TARGET_PVE = 48
-TARGET_PVP = 16 
+TARGET_PVP = 16
 
 class DummyBot:
     def __init__(self, bot_id, mode):

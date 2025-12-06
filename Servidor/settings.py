@@ -42,13 +42,17 @@ MINION_CONGELANTE_LEASH_RANGE = 1500
 MIN_SPAWN_DIST_ENTRE_NAVES_MAE = 800
 
 # --- CONFIGURAÇÃO DE ACERTO DE TIRO ---
-CHANCE_ACERTO_TIRO = 0.75     # 85% de chance de o tiro "grudar" no alvo
+CHANCE_ACERTO_TIRO = 0.75     # 75% de chance de o tiro "grudar" no alvo
 HOMING_STEER_FORTE = 1.0      # Curva máxima
 
-# --- CONFIGURAÇÕES KAMIKAZE (Necessárias para evitar erros no server_logic) ---
+# --- CONFIGURAÇÕES KAMIKAZE ---
 KAMIKAZE_DANO = 30.0          
 KAMIKAZE_RAIO_EXPLOSAO = 200  
 KAMIKAZE_DIST_DETONACAO = 40  
+
+# --- NOVO: PROPULSOR ENERGÉTICO ---
+DURACAO_PROPULSOR_IMUNE = 3000   # 3 segundos de invulnerabilidade
+COOLDOWN_PROPULSOR = 20000       # 20 segundos de recarga
 
 VELOCIDADE_ROTACAO_NAVE = 5
 MAX_NIVEL_ESCUDO = 5

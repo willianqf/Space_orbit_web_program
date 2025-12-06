@@ -22,6 +22,10 @@ const pvpGameTimer = document.getElementById('pvpGameTimer');
 const pvpCountdown = document.getElementById('pvpCountdown');
 const pvpWinner = document.getElementById('pvpWinner');
 
+// Elementos da UI Propulsor
+const btnPropulsor = document.getElementById('btnPropulsor');
+const propulsorCooldownOverlay = document.getElementById('propulsorCooldown');
+
 const minimapCanvas = document.getElementById('minimapCanvas');
 const minimapCtx = minimapCanvas.getContext('2d');
 
@@ -66,6 +70,10 @@ let particles = [];
 let shieldParticles = []; 
 const inputState = { w: false, a: false, s: false, d: false, space: false, mouse_x: 0, mouse_y: 0, mouseDown: false };
 
+// --- ESTADO LOCAL DO PROPULSOR ---
+let propulsorCooldownEnd = 0; 
+const COOLDOWN_TIME_MS = 20000; 
+
 // --- UTILITÁRIOS ---
 function lerp(start, end, t) { return start + (end - start) * t; }
 function lerpAngle(start, end, t) {
@@ -108,6 +116,7 @@ function resetClientState() {
     particles = [];
     shieldParticles = []; 
     auxVisuals = {}; 
+    propulsorCooldownEnd = 0; 
 
     hudDiv.classList.add('hidden');
     pauseMenu.classList.add('hidden');
@@ -130,34 +139,17 @@ function spawnExplosionParticles(x, y, color) {
         particles.push({ x: x, y: y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, life: 1.0, size: 4+Math.random()*4, color: color });
     }
 }
-
-/**
- * NOVO: Gera uma explosão muito maior (~400px de diâmetro) para o Kamikaze.
- */
 function spawnKamikazeExplosion(x, y) {
-    const PARTICLE_COUNT = 150; // Mais partículas para um efeito visual maior
-    const MAX_SPEED = 20;      // Velocidade inicial maior para dispersão
-    const MAX_SIZE = 10;       // Tamanho inicial da partícula maior
-    
+    const PARTICLE_COUNT = 150; 
+    const MAX_SPEED = 20;      
+    const MAX_SIZE = 10;       
     for (let i = 0; i < PARTICLE_COUNT; i++) { 
         const angle = Math.random() * Math.PI * 2;
         const speed = 5 + Math.random() * MAX_SPEED; 
-        
-        // Cores de explosão amarela/laranja
         let color = Math.random() > 0.5 ? '#ffff00' : '#ffaa00'; 
-        
-        particles.push({ 
-            x: x, 
-            y: y, 
-            vx: Math.cos(angle) * speed, 
-            vy: Math.sin(angle) * speed, 
-            life: 1.0, 
-            size: 5 + Math.random() * MAX_SIZE, 
-            color: color 
-        });
+        particles.push({ x: x, y: y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 1.0, size: 5 + Math.random() * MAX_SIZE, color: color });
     }
 }
-
 function spawnEngineParticles(x, y, angle) {
     if (isNaN(angle)) return;
     const rad = (angle * Math.PI) / 180;
@@ -185,92 +177,81 @@ function updateAndDrawParticles() {
     }
 }
 
-// --- NOVO SISTEMA DE PARTÍCULAS DO ESCUDO (AJUSTADO PARA SER MENOR) ---
+// --- PARTÍCULAS DO ESCUDO ---
 function spawnShieldHitEffect(worldX, worldY, hitAngle) {
     const particleCount = 20; 
     const shieldRadius = 45; 
-
     for (let i = 0; i < particleCount; i++) {
         const spread = (Math.random() - 0.5) * (Math.PI / 2.5); 
         const finalAngle = hitAngle + spread;
-        
         const speed = 4 + Math.random() * 6; 
-        
         const startX = worldX + Math.cos(hitAngle) * shieldRadius;
         const startY = worldY + Math.sin(hitAngle) * shieldRadius;
-
         shieldParticles.push({
-            x: startX,
-            y: startY,
-            vx: Math.cos(finalAngle) * speed,
-            vy: Math.sin(finalAngle) * speed,
-            life: 1.0,
-            decay: 0.05 + Math.random() * 0.05, // Decaimento mais rápido
-            
-            // --- AJUSTE DE TAMANHO AQUI ---
-            // Antes era: 2 + random * 3
-            // Agora é: 0.8 + random * 1.5 (Fagulhas finas)
-            size: 0.8 + Math.random() * 1.5,
-            
+            x: startX, y: startY, vx: Math.cos(finalAngle) * speed, vy: Math.sin(finalAngle) * speed,
+            life: 1.0, decay: 0.05 + Math.random() * 0.05, size: 0.8 + Math.random() * 1.5,
             color: Math.random() > 0.5 ? '#ffffff' : '#00ffff' 
         });
     }
 }
-
 function updateAndDrawShieldParticles() {
     for (let i = shieldParticles.length - 1; i >= 0; i--) {
-        let p = shieldParticles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= p.decay;
-
+        let p = shieldParticles[i]; p.x += p.vx; p.y += p.vy; p.life -= p.decay;
         if (p.life <= 0) { shieldParticles.splice(i, 1); continue; }
-
-        let screenX = p.x - camX;
-        let screenY = p.y - camY;
-
+        let screenX = p.x - camX; let screenY = p.y - camY;
         if (screenX < -50 || screenX > canvas.width + 50 || screenY < -50 || screenY > canvas.height + 50) continue;
-
-        ctx.globalAlpha = p.life;
-        ctx.fillStyle = p.color;
-        
-        ctx.beginPath();
+        ctx.globalAlpha = p.life; ctx.fillStyle = p.color; ctx.beginPath();
         ctx.arc(screenX, screenY, p.size, 0, Math.PI * 2);
-        
-        // Glow reduzido para acompanhar o tamanho
-        ctx.shadowBlur = 5;
-        ctx.shadowColor = p.color;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        
-        ctx.globalAlpha = 1.0;
+        ctx.shadowBlur = 5; ctx.shadowColor = p.color; ctx.fill(); ctx.shadowBlur = 0; ctx.globalAlpha = 1.0;
     }
 }
-
 function drawEnergyShieldBase(ctx, x, y, radius, hitAngle, isActiveHit) {
     if (!isActiveHit) return;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(hitAngle); 
+    ctx.shadowBlur = 25; ctx.shadowColor = '#00ffff'; ctx.lineCap = 'round'; 
+    ctx.beginPath(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4;
+    ctx.arc(0, 0, radius, -Math.PI / 5, Math.PI / 5); ctx.stroke();
+    ctx.beginPath(); ctx.strokeStyle = 'rgba(0, 255, 255, 0.8)';
+    ctx.lineWidth = 8; ctx.shadowBlur = 0; 
+    ctx.arc(0, 0, radius, -Math.PI / 5, Math.PI / 5); ctx.stroke(); ctx.restore();
+}
 
+// --- EFEITO VISUAL DO PROPULSOR (RAIOS) ---
+function drawLightningShield(ctx, x, y, radius) {
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(hitAngle); 
-
-    ctx.shadowBlur = 25;
-    ctx.shadowColor = '#00ffff'; 
-    ctx.lineCap = 'round'; 
-
+    ctx.strokeStyle = '#00ffff'; 
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = '#00ffff';
+    
+    const spikes = 12; 
     ctx.beginPath();
-    ctx.strokeStyle = '#ffffff'; 
-    ctx.lineWidth = 4;
-    ctx.arc(0, 0, radius, -Math.PI / 5, Math.PI / 5); 
+    for (let i = 0; i < spikes; i++) {
+        const angle = (Math.PI * 2 / spikes) * i + (Math.random() * 0.5);
+        const len = radius * (0.8 + Math.random() * 0.4); 
+        
+        const innerLen = radius * 0.4;
+        const sx = Math.cos(angle) * innerLen;
+        const sy = Math.sin(angle) * innerLen;
+        
+        const ex = Math.cos(angle) * len;
+        const ey = Math.sin(angle) * len;
+        
+        ctx.moveTo(sx, sy);
+        
+        const midX = (sx + ex) / 2 + (Math.random() - 0.5) * 20;
+        const midY = (sy + ey) / 2 + (Math.random() - 0.5) * 20;
+        
+        ctx.lineTo(midX, midY);
+        ctx.lineTo(ex, ey);
+    }
     ctx.stroke();
-
+    
     ctx.beginPath();
-    ctx.strokeStyle = 'rgba(0, 255, 255, 0.8)';
-    ctx.lineWidth = 8;
-    ctx.shadowBlur = 0; 
-    ctx.arc(0, 0, radius, -Math.PI / 5, Math.PI / 5);
-    ctx.stroke();
-
+    ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
+    ctx.arc(0, 0, radius * 0.6, 0, Math.PI*2);
+    ctx.fill();
     ctx.restore();
 }
 
@@ -296,6 +277,32 @@ function toggleShop() { if(!isPaused) shopModal.classList.toggle('hidden'); }
 function buyUpgrade(item) { if(isConnected) socket.send(JSON.stringify({ type: "UPGRADE", item: item })); }
 function toggleRegen() { if(isConnected && !isPaused) socket.send(JSON.stringify({ type: "TOGGLE_REGEN" })); }
 function closeShopIfOpen() { if (!shopModal.classList.contains('hidden')) shopModal.classList.add('hidden'); }
+
+// --- ATIVAR PROPULSOR ---
+function activatePropeller() {
+    if (isConnected && !isPaused) {
+        const now = Date.now();
+        if (now >= propulsorCooldownEnd) {
+            socket.send(JSON.stringify({ type: "ATIVAR_PROPULSOR" }));
+            propulsorCooldownEnd = now + COOLDOWN_TIME_MS;
+            updatePropellerButtonState();
+        }
+    }
+}
+
+function updatePropellerButtonState() {
+    const now = Date.now();
+    const remaining = propulsorCooldownEnd - now;
+
+    if (remaining > 0) {
+        btnPropulsor.classList.add('disabled');
+        propulsorCooldownOverlay.classList.remove('hidden');
+        propulsorCooldownOverlay.innerText = Math.ceil(remaining / 1000);
+    } else {
+        btnPropulsor.classList.remove('disabled');
+        propulsorCooldownOverlay.classList.add('hidden');
+    }
+}
 
 function togglePause() {
     isPaused = !isPaused;
@@ -337,6 +344,8 @@ function requestRespawn() {
         isSpectating = false; 
         isRespawning = true; 
         socket.send(JSON.stringify({ type: "RESPAWN" })); 
+        propulsorCooldownEnd = 0;
+        updatePropellerButtonState();
     } 
 }
 function exitGame() { if (socket) socket.close(); resetClientState(); }
@@ -358,22 +367,33 @@ function connect(playerName, gameMode) {
             inputIntervalId = setInterval(sendInput, 1000 / 60);
             if(animationFrameId) cancelAnimationFrame(animationFrameId);
             draw(); 
-        } else if (msg.type === "STATE") {
-            gameState = msg; 
-            let amIAlive = gameState.players.some(p => p.id === myId);
-            if (amIAlive) {
-                hasReceivedFirstState = true;
-                if (isRespawning) { isRespawning = false; isPaused = false; pauseMenu.classList.add('hidden'); }
-            }
-            updateHud(); hidePvpUI(); 
-        } else if (msg.type === "PVP_STATE") {
+        } else if (msg.type === "STATE" || msg.type === "PVP_STATE") {
             gameState = msg; 
             let amIAlive = gameState.players.some(p => p.id === myId);
             if (amIAlive) hasReceivedFirstState = true;
-            updateHud(); updatePvpUI(msg.pvp);
+
+            let me = gameState.players.find(p => p.id === myId);
+            if (me && me.is_spectator && !isSpectating) {
+                isSpectating = true;
+                cycleSpectatorTarget(); 
+                showNotification("Partida Lotada! Entrou como Espectador.");
+            }
+
+            if (msg.type === "PVP_STATE") updatePvpUI(msg.pvp);
+            updateHud(); hidePvpUI();
+            if (msg.type === "PVP_STATE" && msg.pvp.state !== "WAITING") { 
+                pvpLobbyStatus.classList.remove('hidden'); 
+                updatePvpUI(msg.pvp); 
+            }
         }
     };
-    socket.onclose = (event) => { showNotification("Desconectado do servidor."); isConnected = false; };
+
+    socket.onclose = (event) => { 
+        let message = event.reason || "Desconectado do servidor.";
+        showNotification(message); 
+        isConnected = false; 
+    };
+
     socket.onerror = (err) => { showNotification("Erro de conexão."); };
 }
 
@@ -456,11 +476,18 @@ window.addEventListener('keydown', (e) => {
     if(!isConnected) return; const k = e.key.toLowerCase();
     if (k === 'escape') { togglePause(); return; }
     if (isPaused) return; 
+    if (k === 'shift') { activatePropeller(); return; }
     if (k === 'v') toggleShop();
     if (!shopModal.classList.contains('hidden')) return; 
     if (k === 'r') toggleRegen();
+    
     let myPlayer = gameState.players.find(p => p.id === myId);
-    if (!myPlayer && !isSpectating && (k === 'e' || k === 'q')) { enterSpectatorMode(); cycleSpectatorTarget(); return; }
+    if ((!myPlayer || isSpectating) && (k === 'e' || k === 'q')) { 
+        enterSpectatorMode(); 
+        cycleSpectatorTarget(); 
+        return; 
+    }
+    
     if (isSpectating && (k === 'e' || k === 'q')) cycleSpectatorTarget();
     if (k === 'w' || k === 'arrowup') inputState.w = true;
     if (k === 'a' || k === 'arrowleft') inputState.a = true;
@@ -480,13 +507,16 @@ window.addEventListener('mousemove', (e) => { inputState.mouse_x = e.clientX; in
 window.addEventListener('mousedown', (e) => {
     if (!isConnected) return;
     if (e.target.closest('.hud-btn') || e.target.closest('.shop-item') || e.target.closest('#loginScreen') || e.target.closest('.pause-box') || e.target.closest('.notification-box')) return;
+    if (e.target.closest('.btn-skill-large')) return;
+
     let myPlayer = gameState.players.find(p => p.id === myId);
-    if (!myPlayer || isSpectating) {
+    if ((!myPlayer || isSpectating)) {
         if (!isSpectating && !isPaused && selectedGameMode === 'PVE') {
              if (inputState.mouse_x >= respawnBtnRect.x && inputState.mouse_x <= respawnBtnRect.x + respawnBtnRect.w && inputState.mouse_y >= respawnBtnRect.y && inputState.mouse_y <= respawnBtnRect.y + respawnBtnRect.h) { requestRespawn(); return; }
         }
         if (e.button === 0) cycleSpectatorTarget(); return;
     }
+    
     if (isPaused) return;
     if (e.button === 0) inputState.mouseDown = true;
     if (e.button === 2) { let worldMouseX = camX + e.clientX; let worldMouseY = camY + e.clientY; socket.send(JSON.stringify({ type: "TARGET", x: Math.floor(worldMouseX), y: Math.floor(worldMouseY) })); }
@@ -505,8 +535,10 @@ function cycleSpectatorTarget() {
     if (gameState.players.length === 0) return;
     let currentIndex = -1;
     if (spectatorTargetId) currentIndex = gameState.players.findIndex(p => p.id === spectatorTargetId);
-    let livingPlayers = gameState.players.filter(p => p.hp > 0);
-    if (livingPlayers.length === 0) livingPlayers = gameState.players;
+    let livingPlayers = gameState.players.filter(p => p.hp > 0 && !p.is_spectator); 
+    if (livingPlayers.length === 0) livingPlayers = gameState.players.filter(p => p.hp > 0);
+    if (livingPlayers.length === 0) return; 
+    
     let nextIndex = (currentIndex + 1) % livingPlayers.length;
     spectatorTargetId = livingPlayers[nextIndex].id;
 }
@@ -536,7 +568,9 @@ function drawMinimap() {
 
     if (gameState.players) {
         gameState.players.forEach(p => {
+            if (p.is_spectator) return; // --- FILTRA ESPECTADORES DO MINIMAPA ---
             if (p.id === myId) return; 
+            
             if (myPlayer) {
                 const dx = p.x - myPlayer.x; const dy = p.y - myPlayer.y;
                 const dist = Math.sqrt(dx*dx + dy*dy);
@@ -563,14 +597,17 @@ function drawMinimap() {
         });
     }
 
-    if (myPlayer) {
+    if (myPlayer && !isSpectating) { // --- SÓ DESENHA A SI MESMO SE NÃO FOR ESPECTADOR ---
         minimapCtx.fillStyle = '#00ff00';
         minimapCtx.beginPath(); minimapCtx.arc(myPlayer.x * scaleX, myPlayer.y * scaleY, 3, 0, Math.PI * 2); minimapCtx.fill();
     }
 }
 
 function drawRanking() {
-    let sortedPlayers = [...gameState.players].sort((a, b) => b.score - a.score).slice(0, 5);
+    // --- FILTRA ESPECTADORES DO RANKING ---
+    let sortedPlayers = gameState.players.filter(p => !p.is_spectator).sort((a, b) => b.score - a.score).slice(0, 5);
+    // --------------------------------------
+
     let startX = canvas.width - 200; let startY = 190; 
     ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(startX - 10, startY - 10, 200, 30 + sortedPlayers.length * 25);
     ctx.fillStyle = "#ffcc00"; ctx.font = "bold 16px Arial"; ctx.fillText("RANKING", startX + 60, startY + 10);
@@ -588,6 +625,8 @@ function draw() {
     animationFrameId = requestAnimationFrame(draw);
     if (!isConnected) return;
     
+    updatePropellerButtonState();
+
     ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     const lerpFactor = 0.3; 
     
@@ -610,7 +649,7 @@ function draw() {
     let myVisual = visualState.players[myId]; 
     let targetCamX, targetCamY;
 
-    if (myPlayer) {
+    if (myPlayer && !isSpectating) {
         targetCamX = myVisual.x - canvas.width / 2; targetCamY = myVisual.y - canvas.height / 2;
         lastKnownX = myVisual.x; lastKnownY = myVisual.y;
         if (Math.abs(camX - targetCamX) > 2000) { camX = targetCamX; camY = targetCamY; }
@@ -618,7 +657,10 @@ function draw() {
     } else {
         if (isSpectating) {
             let target = gameState.players.find(p => p.id === spectatorTargetId);
-            if (!target && gameState.players.length > 0) { spectatorTargetId = gameState.players[0].id; target = gameState.players[0]; }
+            if (!target && gameState.players.length > 0) { 
+                target = gameState.players.find(p => !p.is_spectator && p.hp > 0);
+                if(target) spectatorTargetId = target.id;
+            }
             if (target) {
                 let targetVisual = visualState.players[target.id] || target;
                 targetCamX = targetVisual.x - canvas.width / 2; targetCamY = targetVisual.y - canvas.height / 2;
@@ -667,12 +709,10 @@ function draw() {
     for (let y = offsetY; y < canvas.height; y += gridSize) { ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); } ctx.stroke();
 
     updateAndDrawParticles();
-    updateAndDrawShieldParticles(); // Desenha partículas do escudo
+    updateAndDrawShieldParticles();
 
-    // NPCs
     if (gameState.npcs) {
         gameState.npcs.forEach(npc => {
-            // MUDANÇA 1 (já implementada): Armazena o tipo do NPC no estado visual
             if (!visualState.npcs[npc.id]) { visualState.npcs[npc.id] = { x: npc.x, y: npc.y, angle: npc.angle, type: npc.type }; }
             else { let v = visualState.npcs[npc.id]; v.x = lerp(v.x, npc.x, lerpFactor); v.y = lerp(v.y, npc.y, lerpFactor); v.angle = lerpAngle(v.angle, npc.angle, lerpFactor); }
             let v = visualState.npcs[npc.id]; const screenX = v.x - camX; const screenY = v.y - camY;
@@ -693,15 +733,7 @@ function draw() {
         for (let id in visualState.npcs) { 
             if (!gameState.npcs.find(n => n.id === id)) { 
                 let v = visualState.npcs[id]; 
-                
-                // MUDANÇA 2: Usa a função de explosão grande se for Kamikaze ('bomba')
-                if (v.type === 'bomba') {
-                    spawnKamikazeExplosion(v.x, v.y);
-                } else {
-                    let explColor = '#ff5500'; // Cor padrão para NPCs
-                    spawnExplosionParticles(v.x, v.y, explColor); // Chama a explosão pequena padrão
-                }
-                
+                if (v.type === 'bomba') { spawnKamikazeExplosion(v.x, v.y); } else { let explColor = '#ff5500'; spawnExplosionParticles(v.x, v.y, explColor); }
                 delete visualState.npcs[id]; 
             } 
         }
@@ -714,6 +746,11 @@ function draw() {
         if (isMax) { ctx.shadowBlur = 10; ctx.shadowColor = '#00ff00'; ctx.fillStyle = '#00ff00'; ctx.fill(); } else { ctx.shadowBlur = 5; ctx.shadowColor = color; ctx.fillStyle = color; ctx.fill(); } ctx.shadowBlur = 0;
     });
     gameState.players.forEach(p => {
+        
+        // --- SE FOR ESPECTADOR, NÃO DESENHA A PRÓPRIA NAVE ---
+        if (isSpectating && p.id === myId) return;
+        // -----------------------------------------------------
+
         let v = visualState.players[p.id] || p; const screenX = v.x - camX; const screenY = v.y - camY;
         let speed = 0; if (v.prevX !== undefined) { let dx = v.x - v.prevX; let dy = v.y - v.prevY; speed = Math.sqrt(dx*dx + dy*dy); } v.prevX = v.x; v.prevY = v.y;
         if (p.nv_motor >= 5 && speed > 0.5) { spawnEngineParticles(v.x, v.y, v.angle); }
@@ -739,17 +776,15 @@ function draw() {
             ctx.translate(rx, ry); ctx.rotate(time + Math.PI/2); ctx.fillStyle = '#aa55ff'; ctx.shadowBlur = 10; ctx.shadowColor = '#aa55ff'; ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(-8, 8); ctx.lineTo(8, 8); ctx.fill(); ctx.restore();
         }
 
-        // --- LÓGICA DE ESCUDO ---
         if (p.shield_hit) {
-            if (!lastShieldStates[p.id]) {
-                // Passa a coordenada do MUNDO (v.x, v.y) para a função de spawn
-                spawnShieldHitEffect(v.x, v.y, p.shield_angle || 0);
-            }
-            // Desenha a base (usa screenX/Y pois é relativo à câmera agora)
+            if (!lastShieldStates[p.id]) { spawnShieldHitEffect(v.x, v.y, p.shield_angle || 0); }
             drawEnergyShieldBase(ctx, screenX, screenY, 40, p.shield_angle || 0, true);
         }
         lastShieldStates[p.id] = p.shield_hit;
-        // ------------------------
+
+        if (p.propulsor_ativo) {
+            drawLightningShield(ctx, screenX, screenY, 80);
+        }
 
         ctx.save(); ctx.translate(screenX, screenY);
         ctx.fillStyle = 'white'; ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.fillText(p.id.split('_')[0], 0, -45);

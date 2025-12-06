@@ -77,13 +77,18 @@ PONTOS_SCORE_PARA_MUDAR_LIMIAR = s.PONTOS_SCORE_PARA_MUDAR_LIMIAR[:]
 VIDA_POR_NIVEL = s.VIDA_POR_NIVEL
 
 # ==================================================================================
-# 2. FUNÇÕES LÓGICAS
+# 2. FUNÇÕES LÓGICAS (COM PROTEÇÃO DE LOOP INFINITO)
 # ==================================================================================
 
 def server_ganhar_pontos(player_state, quantidade):
     if quantidade <= 0: return
     player_state['pontos'] += quantidade 
     player_state['_pontos_acumulados_para_upgrade'] += quantidade
+    
+    safety_break = 0
+    if player_state['_limiar_pontos_atual'] <= 0:
+        player_state['_limiar_pontos_atual'] = 100 
+
     while player_state['_pontos_acumulados_para_upgrade'] >= player_state['_limiar_pontos_atual']:
         player_state['pontos_upgrade_disponiveis'] += 1
         player_state['_pontos_acumulados_para_upgrade'] -= player_state['_limiar_pontos_atual'] 
@@ -93,6 +98,9 @@ def server_ganhar_pontos(player_state, quantidade):
             player_state['_indice_limiar'] += 1
             if player_state['_indice_limiar'] < len(PONTOS_LIMIARES_PARA_UPGRADE):
                 player_state['_limiar_pontos_atual'] = PONTOS_LIMIARES_PARA_UPGRADE[player_state['_indice_limiar']]
+        
+        safety_break += 1
+        if safety_break > 50: break
 
 def server_comprar_upgrade(player_state, tipo_upgrade):
     is_pvp = player_state.get('is_pvp', False)
@@ -134,11 +142,16 @@ def calc_hit_angle_rad(target_x, target_y, attacker_x, attacker_y):
     return math.atan2(dy, dx)
 
 def server_processar_explosao_kamikaze(npc, players_dict, agora_ms):
-    # Função dummy para compatibilidade com import, mas a lógica está no loop principal
     pass
 
 # --- LÓGICA DE JOGADOR E TIROS ---
 def update_player_logic(player_state, lista_alvos_busca, agora_ms, map_width, map_height, dt=1.0): 
+    # --- LÓGICA DO PROPULSOR ENERGÉTICO ---
+    if player_state.get('propulsor_ativo', False):
+        if agora_ms > player_state.get('fim_propulsor', 0):
+            player_state['propulsor_ativo'] = False
+    # --------------------------------------
+
     if player_state.get('is_pre_match', False): player_state['alvo_mouse'] = None; player_state['teclas'] = {'w':False,'a':False,'s':False,'d':False,'space':False}; return None 
     if agora_ms < player_state.get('tempo_fim_congelamento', 0): player_state['alvo_mouse'] = None; return None
     is_lento = agora_ms < player_state.get('tempo_fim_lentidao', 0)
@@ -183,15 +196,12 @@ def update_player_logic(player_state, lista_alvos_busca, agora_ms, map_width, ma
         tipo_base = 'player_pvp' if player_state.get('is_pvp') else 'player_pve'
         if player_state['nivel_dano'] >= s.MAX_NIVEL_DANO: tipo_base += '_max' 
 
-        # --- SORTEIO DA CHANCE DE ACERTO (0.85) ---
         vai_acertar = (random.random() < s.CHANCE_ACERTO_TIRO)
         
-        # Aumentamos a velocidade se for para acertar (1.5x)
         velocidade_final = VELOCIDADE_PROJETIL_TELE
         if vai_acertar:
             velocidade_final *= 1.5 
 
-        # Se for errar, segue reto na direção atual da nave
         angulo_disparo = rad
 
         vel_x = -math.sin(angulo_disparo) * velocidade_final
@@ -255,13 +265,11 @@ def process_auxiliaries_logic(p, living_targets, agora_ms):
 
 def update_projectile_physics(proj, all_targets, agora_ms, dt=1.0):
     
-    # 1. Se NÃO FOR ACERTAR, move em linha reta e sai (Ignora lógica de homing)
     if proj.get('tipo_proj') == 'teleguiado' and not proj.get('acerto_garantido', True):
         proj['x'] += proj.get('vel_x', 0) * dt
         proj['y'] += proj.get('vel_y', 0) * dt
         return
 
-    # 2. Se FOR ACERTAR, lógica de perseguição agressiva
     if proj.get('tipo_proj') == 'teleguiado' and proj.get('alvo_id'):
         target = next((t for t in all_targets if t.get('id', t.get('nome')) == proj['alvo_id']), None)
         
@@ -271,17 +279,14 @@ def update_projectile_physics(proj, all_targets, agora_ms, dt=1.0):
             desired_vec = target_pos - curr_pos
             dist = desired_vec.length()
             
-            # Velocidade do projétil neste frame
             velocidade = proj.get('velocidade_real', proj['velocidade'])
             passo_neste_frame = velocidade * dt
 
-            # SNAP: Se a distância for menor que o passo, teleporta para o alvo (GARANTE COLISÃO)
             if dist <= passo_neste_frame:
                 proj['x'] = target['x']
                 proj['y'] = target['y']
-                return # Posição definida, encerra
+                return 
 
-            # Se ainda longe, aponta direto para o alvo e move
             if dist > 0:
                 desired_dir = desired_vec.normalize()
                 new_vel = desired_dir * velocidade
@@ -291,12 +296,10 @@ def update_projectile_physics(proj, all_targets, agora_ms, dt=1.0):
                 proj['x'] += new_vel.x * dt
                 proj['y'] += new_vel.y * dt
         else:
-            # Se alvo morreu, segue reto
             proj['tipo_proj'] = 'normal'
             proj['x'] += proj.get('vel_x', 0) * dt
             proj['y'] += proj.get('vel_y', 0) * dt
     else:
-        # Tiro normal
         proj['x'] += proj.get('vel_x', 0) * dt
         proj['y'] += proj.get('vel_y', 0) * dt
 
@@ -362,9 +365,102 @@ def update_npc_generic_logic(npc, players_dict, agora_ms, dt=1.0):
             return {'id': f"{npc['id']}_{agora_ms}", 'owner_nome': npc['id'], 'x': npc['x'], 'y': npc['y'], 'pos_inicial_x': npc['x'], 'pos_inicial_y': npc['y'], 'angulo_rad': angulo_tiro, 'velocidade': velocidade_proj, 'dano': 1, 'tipo': 'npc', 'tipo_proj': tipo_proj_npc, 'alvo_id': alvo_id_proj, 'timestamp_criacao': agora_ms, 'vel_x': vel_x, 'vel_y': vel_y, 'acerto_garantido': vai_acertar}
     return None
 
-def update_mothership_logic(npc, players_dict, agora_ms, room_ref, dt=1.0): return None 
-def update_boss_congelante_logic(npc, players_dict, agora_ms, room_ref, dt=1.0): return None 
-def update_minion_logic(npc, players_dict, agora_ms, room_ref, dt=1.0): return None
+# ==================================================================================
+# LÓGICA DE BOSSES
+# ==================================================================================
+
+def update_mothership_logic(npc, players_dict, agora_ms, room_ref, dt=1.0):
+    if npc.get('hp', 0) <= 0: return None
+    
+    target_id = npc.get('ia_alvo_retaliacao')
+    target = None
+    if target_id:
+        target = next((p for p in players_dict.values() if p['nome'] == target_id), None)
+        if not target or target['hp'] <= 0:
+            npc['ia_alvo_retaliacao'] = None; target = None; npc['ia_estado'] = 'VAGANDO'
+    
+    if target:
+        npc['ia_estado'] = 'RETALIANDO'
+        dist_sq = (target['x'] - npc['x'])**2 + (target['y'] - npc['y'])**2; dist_real = math.sqrt(dist_sq)
+        velocidade = 1.0 * dt; dx, dy = target['x'] - npc['x'], target['y'] - npc['y']
+        if dist_real > 700: npc['x'] += (dx / dist_real) * velocidade; npc['y'] += (dy / dist_real) * velocidade
+        elif dist_real < 500: npc['x'] -= (dx / dist_real) * velocidade; npc['y'] -= (dy / dist_real) * velocidade
+        
+        minions_vivos = [m for m in room_ref.npcs if m['tipo'] == 'minion_mothership' and m.get('owner_id') == npc['id']]
+        if len(minions_vivos) < MAX_MINIONS_MOTHERSHIP:
+            if agora_ms - npc.get('ia_ultimo_spawn', 0) > 2000:
+                npc['ia_ultimo_spawn'] = agora_ms
+                m = server_spawnar_minion_mothership(npc, target_id, len(minions_vivos), MAX_MINIONS_MOTHERSHIP, room_ref.next_npc_id)
+                room_ref.npcs.append(m); room_ref.next_npc_id += 1
+    else:
+        npc['ia_estado'] = 'VAGANDO'
+        if npc.get('ia_wander_target'):
+            wx, wy = npc['ia_wander_target']
+            d_sq = (wx - npc['x'])**2 + (wy - npc['y'])**2
+            if d_sq < 100**2: npc['ia_wander_target'] = None
+            else: d = math.sqrt(d_sq); npc['x'] += ((wx - npc['x']) / d) * 0.5 * dt; npc['y'] += ((wy - npc['y']) / d) * 0.5 * dt
+        else: npc['ia_wander_target'] = (random.randint(100, s.MAP_WIDTH-100), random.randint(100, s.MAP_HEIGHT-100))
+    return None
+
+def update_boss_congelante_logic(npc, players_dict, agora_ms, room_ref, dt=1.0):
+    if npc.get('hp', 0) <= 0: return None
+    target_id = npc.get('ia_alvo_retaliacao'); target = None
+    if target_id:
+        target = next((p for p in players_dict.values() if p['nome'] == target_id), None)
+        if not target or target['hp'] <= 0: npc['ia_alvo_retaliacao'] = None; target = None
+    
+    if target:
+        velocidade = 1.8 * dt; dx, dy = target['x'] - npc['x'], target['y'] - npc['y']; dist = math.sqrt(dx**2 + dy**2) + 0.1
+        npc['x'] += (dx/dist) * velocidade; npc['y'] += (dy/dist) * velocidade
+        
+        if (agora_ms - npc.get('ia_ultimo_spawn_minion', 0) > COOLDOWN_SPAWN_MINION_CONGELANTE):
+            minions = [m for m in room_ref.npcs if m['tipo'] == 'minion_congelante' and m.get('owner_id') == npc['id']]
+            if len(minions) < MAX_MINIONS_CONGELANTE:
+                npc['ia_ultimo_spawn_minion'] = agora_ms
+                m = server_spawnar_minion_congelante(npc, target['nome'], len(minions), MAX_MINIONS_CONGELANTE, room_ref.next_npc_id)
+                room_ref.npcs.append(m); room_ref.next_npc_id += 1
+                
+        if agora_ms - npc.get('ultimo_tiro_tempo', 0) > s.COOLDOWN_TIRO_CONGELANTE:
+            npc['ultimo_tiro_tempo'] = agora_ms
+            vel_x = (dx/dist) * VELOCIDADE_PROJ_CONGELANTE; vel_y = (dy/dist) * VELOCIDADE_PROJ_CONGELANTE
+            return {'id': f"{npc['id']}_{agora_ms}", 'owner_nome': npc['id'], 'x': npc['x'], 'y': npc['y'], 'pos_inicial_x': npc['x'], 'pos_inicial_y': npc['y'], 'dano': 1, 'tipo': 'npc', 'tipo_proj': 'congelante', 'velocidade': VELOCIDADE_PROJ_CONGELANTE, 'vel_x': vel_x, 'vel_y': vel_y, 'alvo_id': target['nome'], 'timestamp_criacao': agora_ms}
+    else:
+        if not npc.get('ia_wander_target') or (npc['x']-npc['ia_wander_target'][0])**2 + (npc['y']-npc['ia_wander_target'][1])**2 < 100**2:
+            npc['ia_wander_target'] = (random.randint(100, s.MAP_WIDTH-100), random.randint(100, s.MAP_HEIGHT-100))
+        wx, wy = npc['ia_wander_target']; dx, dy = wx - npc['x'], wy - npc['y']; d = math.sqrt(dx**2 + dy**2) + 0.1
+        npc['x'] += (dx/d) * 0.8 * dt; npc['y'] += (dy/d) * 0.8 * dt
+    return None
+
+def update_minion_logic(npc, players_dict, agora_ms, room_ref, dt=1.0):
+    if npc.get('hp', 0) <= 0: return None
+    owner = next((n for n in room_ref.npcs if n['id'] == npc.get('owner_id')), None)
+    if not owner or owner['hp'] <= 0: npc['hp'] = 0; return None
+    
+    target = None
+    if owner.get('ia_alvo_retaliacao'): target = next((p for p in players_dict.values() if p['nome'] == owner['ia_alvo_retaliacao']), None)
+    
+    npc['ia_angulo_orbita'] = (npc.get('ia_angulo_orbita', 0) + npc.get('ia_vel_orbita', 1) * dt) % 360
+    rad = math.radians(npc['ia_angulo_orbita']); raio = npc.get('ia_raio_orbita', 60)
+    dest_x = owner['x'] + math.cos(rad) * raio; dest_y = owner['y'] + math.sin(rad) * raio
+    
+    if target and npc['tipo'] == 'minion_congelante':
+        d_owner_target = (owner['x']-target['x'])**2 + (owner['y']-target['y'])**2
+        if d_owner_target < MINION_CONGELANTE_LEASH_RANGE**2:
+            d_to_target_sq = (target['x']-npc['x'])**2 + (target['y']-npc['y'])**2
+            if d_to_target_sq > 150**2: dest_x, dest_y = target['x'], target['y'] 
+    
+    fator_interp = 0.1 * dt
+    npc['x'] += (dest_x - npc['x']) * fator_interp; npc['y'] += (dest_y - npc['y']) * fator_interp
+    
+    if target and agora_ms - npc.get('ultimo_tiro_tempo', 0) > npc['cooldown_tiro']:
+         d_target = (target['x']-npc['x'])**2 + (target['y']-npc['y'])**2
+         if d_target < 400**2:
+             npc['ultimo_tiro_tempo'] = agora_ms
+             dx, dy = target['x'] - npc['x'], target['y'] - npc['y']; dist = math.sqrt(dx**2 + dy**2) + 0.1; rad_tiro = math.atan2(dy, dx)
+             vel_x = (dx/dist) * VELOCIDADE_PROJETIL_NPC; vel_y = (dy/dist) * VELOCIDADE_PROJETIL_NPC
+             return {'id': f"{npc['id']}_{agora_ms}", 'owner_nome': npc['id'], 'x': npc['x'], 'y': npc['y'], 'pos_inicial_x': npc['x'], 'pos_inicial_y': npc['y'], 'dano': 1, 'tipo': 'npc', 'tipo_proj': 'normal', 'velocidade': VELOCIDADE_PROJETIL_NPC, 'vel_x': vel_x, 'vel_y': vel_y, 'angulo_rad': rad_tiro}
+    return None
+
 def server_spawnar_inimigo_aleatorio(x, y, npc_id): 
     chance = random.random(); tipo = "perseguidor"; hp = 3; max_hp = 3; tamanho = 30; cooldown_tiro = COOLDOWN_TIRO_PERSEGUIDOR; pontos = 5
     if chance < 0.05: tipo = "bomba"; hp, max_hp = 1, 1; tamanho = 25; cooldown_tiro = 999999; pontos = 3
@@ -374,7 +470,7 @@ def server_spawnar_inimigo_aleatorio(x, y, npc_id):
     elif chance < 0.55: tipo = "rapido"; hp, max_hp = 5, 5; tamanho = 30; cooldown_tiro = 800; pontos = 9
     return {'id': npc_id, 'tipo': tipo, 'x': float(x), 'y': float(y), 'angulo': 0.0, 'hp': hp, 'max_hp': max_hp, 'tamanho': tamanho, 'cooldown_tiro': cooldown_tiro, 'ultimo_tiro_tempo': 0, 'pontos_por_morte': pontos }
 def server_spawnar_mothership(x, y, npc_id): return {'id': npc_id, 'tipo': 'mothership', 'x': float(x), 'y': float(y), 'angulo': 0.0, 'hp': 200, 'max_hp': 200, 'tamanho': 80, 'cooldown_tiro': 999999, 'ultimo_tiro_tempo': 0, 'pontos_por_morte': 100, 'ia_estado': 'VAGANDO', 'ia_alvo_retaliacao': None, 'ia_ultimo_hit_tempo': 0 }
-def server_spawnar_boss_congelante(x, y, npc_id): return {'id': npc_id, 'tipo': 'boss_congelante', 'x': float(x), 'y': float(y), 'angulo': 0.0, 'hp': s.HP_BOSS_CONGELANTE, 'max_hp': s.HP_BOSS_CONGELANTE, 'tamanho': 100, 'cooldown_tiro': s.COOLDOWN_TIRO_CONGELANTE, 'ultimo_tiro_tempo': 0, 'pontos_por_morte': s.PONTOS_BOSS_CONGELANTE, 'ia_ultimo_spawn_minion': 0, 'ia_ultimo_hit_tempo': 0, 'ia_wander_target': None }
+def server_spawnar_boss_congelante(x, y, npc_id): return {'id': npc_id, 'tipo': 'boss_congelante', 'x': float(x), 'y': float(y), 'angulo': 0.0, 'hp': s.HP_BOSS_CONGELANTE, 'max_hp': s.HP_BOSS_CONGELANTE, 'tamanho': 100, 'cooldown_tiro': s.COOLDOWN_TIRO_CONGELANTE, 'ultimo_tiro_tempo': 0, 'pontos_por_morte': s.PONTOS_BOSS_CONGELANTE, 'ia_ultimo_spawn_minion': 0, 'ia_ultimo_hit_tempo': 0, 'ia_wander_target': None, 'ia_alvo_retaliacao': None }
 def server_spawnar_minion_mothership(owner, target_id, index, max_minions, npc_id_num): return {'id': f"minion_ms_{npc_id_num}", 'tipo': 'minion_mothership', 'owner_id': owner['id'], 'x': owner['x'], 'y': owner['y'], 'angulo': 0.0, 'hp': 2, 'max_hp': 2, 'tamanho': 15, 'pontos_por_morte': 1, 'cooldown_tiro': 1000, 'ultimo_tiro_tempo': 0, 'ia_alvo_id': target_id, 'ia_raio_orbita': owner['tamanho'] * 0.8 + random.randint(30, 60), 'ia_angulo_orbita': (index / max_minions) * 360, 'ia_vel_orbita': random.uniform(0.5, 1.0) }
 def server_spawnar_minion_congelante(owner, target_id, index, max_minions, npc_id_num): return {'id': f"minion_bc_{npc_id_num}", 'tipo': 'minion_congelante', 'owner_id': owner['id'], 'x': owner['x'], 'y': owner['y'], 'angulo': 0.0, 'hp': HP_MINION_CONGELANTE, 'max_hp': HP_MINION_CONGELANTE, 'tamanho': 18, 'pontos_por_morte': PONTOS_MINION_CONGELANTE, 'cooldown_tiro': COOLDOWN_TIRO_MINION_CONGELANTE, 'ultimo_tiro_tempo': 0, 'ia_alvo_id': target_id, 'ia_raio_orbita': owner['tamanho'] * 0.7 + random.randint(30, 50), 'ia_angulo_orbita': (index / max_minions) * 360, 'ia_vel_orbita': random.uniform(0.5, 1.0) }
 def server_spawnar_obstaculo(pos_referencia_lista, map_width, map_height, npc_id):
