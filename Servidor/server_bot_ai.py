@@ -19,7 +19,7 @@ BOT_HP_FUGIR_PERC = 0.20 # 20%
 BOT_HP_REGENERAR_PERC = 0.50 # 50%
 BOT_WANDER_TURN_CHANCE = 0.01 
 BOT_WANDER_TURN_DURATION_TICKS = 90 
-COOLDOWN_TIRO = 450 # ms
+COOLDOWN_TIRO = 250 # ms
 
 class ServerBotManager:
     def __init__(self, settings, state_globals, logic_callbacks):
