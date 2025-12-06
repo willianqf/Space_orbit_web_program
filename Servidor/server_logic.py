@@ -319,7 +319,7 @@ def update_player_logic(player_state, lista_alvos_busca, agora_ms, map_width, ma
                 alvo = e
                 break
         
-        if alvo and alvo.get('hp', 0) > 0:
+        if alvo and alvo.get('hp', 0) > 0 and not alvo.get('propulsor_ativo', False):
             vec_x = alvo['x'] - player_state['x']
             vec_y = alvo['y'] - player_state['y']
             if vec_x**2 + vec_y**2 > MAX_TARGET_LOCK_DISTANCE_SQ:
@@ -554,8 +554,9 @@ def update_npc_generic_logic(npc, players_dict, agora_ms, dt=1.0):
     if npc.get('hp', 0) <= 0:
         return None
     
+    players_pos_lista = [(p['x'], p['y']) for p in players_dict.values() 
+                         if p.get('hp', 0) > 0 and not p.get('propulsor_ativo', False)]
     # Encontra jogadores vivos
-    players_pos_lista = [(p['x'], p['y']) for p in players_dict. values() if p. get('hp', 0) > 0]
     if not players_pos_lista:
         return None
     

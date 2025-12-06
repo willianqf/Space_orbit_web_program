@@ -648,6 +648,10 @@ function draw() {
     let myPlayer = gameState.players.find(p => p.id === myId); 
     let myVisual = visualState.players[myId]; 
     let targetCamX, targetCamY;
+    
+    if (myPlayer && myPlayer.hp > 0) {
+        isRespawning = false;
+    }
 
     if (myPlayer && !isSpectating) {
         targetCamX = myVisual.x - canvas.width / 2; targetCamY = myVisual.y - canvas.height / 2;

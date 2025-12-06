@@ -75,8 +75,8 @@ class ServerBotManager:
                 bots_para_remover.append(key_to_remove)
                 print(f"[IA] Removendo bot excedente: {key_to_remove} (Sala cheia)")
         
-        # Limpeza de NPCs mortos (já existente)
-        self.network_npcs[:] = [n for n in self.network_npcs if n.get('hp', 0) > 0]
+        # Limpeza de NPCs mortos (já existente - redundância removida para evitar conflito com server_ws)
+        # self.network_npcs[:] = [n for n in self.network_npcs if n.get('hp', 0) > 0]
         
         return bots_para_remover
 
@@ -161,7 +161,10 @@ class ServerBotManager:
             'bot_direcao_orbita': 1, 
             'bot_timer_troca_orbita': 0,
             'bot_duracao_orbita_atual': random.randint(120, 300),
-            'bot_flee_destination': None 
+            'bot_flee_destination': None,
+            'propulsor_ativo': False,
+            'fim_propulsor': 0,
+            'cooldown_propulsor': 0
         }
         
         self.player_states[nome_bot] = bot_state # Adiciona ao pve_player_states
@@ -219,11 +222,17 @@ class ServerBotManager:
     def _update_ia_decision(self, bot_state, all_living_players, agora_ms):
         """ O "Cérebro" do Bot. Decide o que fazer (define 'teclas', 'alvo_mouse', 'alvo_lock'). """
         
+        # Verifica se está congelado
         if agora_ms < bot_state.get('tempo_fim_congelamento', 0):
             bot_state['teclas'] = { 'w': False, 'a': False, 's': False, 'd': False, 'space': False }
             bot_state['alvo_mouse'] = None
             return
 
+        # --- NOVA LÓGICA: Verifica uso do propulsor ---
+        self._check_propulsor_usage(bot_state, all_living_players, agora_ms)
+        # ----------------------------------------------
+
+        # Lógica de alvo travado
         if bot_state['alvo_lock']:
             alvo_id_lock = bot_state['alvo_lock']
             alvo_ainda_valido = False
@@ -299,7 +308,6 @@ class ServerBotManager:
                 bot_state['bot_estado_ia'] = "FUGINDO" 
                 if bot_state['bot_flee_destination'] is None:
                     bot_state['bot_flee_destination'] = self._find_closest_edge_point(bot_state['x'], bot_state['y'])
-                    # print(f"[{bot_state['nome']}] HP baixo! Fugindo para {bot_state['bot_flee_destination']}")
                 
                 if bot_state['bot_flee_destination']:
                     bot_state['alvo_mouse'] = bot_state['bot_flee_destination']
@@ -335,13 +343,13 @@ class ServerBotManager:
                 alvo_vivo = False
                 target_id = bot_state['alvo_lock']
                 
-                alvo_npc = next((npc for npc in self.network_npcs if npc['id'] == target_id and npc['hp'] > 0), None)
-                if alvo_npc:
-                    alvo_coords = (alvo_npc['x'], alvo_npc['y']); alvo_vivo = True
+                npc_alvo = next((npc for npc in self.network_npcs if npc['id'] == target_id and npc.get('hp', 0) > 0), None)
+                if npc_alvo:
+                    alvo_coords = (npc_alvo['x'], npc_alvo['y']); alvo_vivo = True
                 else:
-                    alvo_player = next((p for p in all_living_players if p['nome'] == target_id), None)
-                    if alvo_player:
-                        alvo_coords = (alvo_player['x'], alvo_player['y']); alvo_vivo = True
+                    player_alvo = next((p for p in all_living_players if p['nome'] == target_id and p['nome'] != bot_state['nome'] and p.get('hp', 0) > 0), None)
+                    if player_alvo:
+                        alvo_coords = (player_alvo['x'], player_alvo['y']); alvo_vivo = True
 
                 if not alvo_vivo or alvo_coords is None:
                     bot_state['alvo_lock'] = None; bot_state['bot_estado_ia'] = "VAGANDO"
@@ -397,6 +405,41 @@ class ServerBotManager:
                     bot_state['bot_wander_target'] = (target_x, target_y)
                 
                 bot_state['alvo_mouse'] = bot_state['bot_wander_target']
+
+    def _check_propulsor_usage(self, bot_state, all_living_players, agora_ms):
+        """ Lógica para o bot usar o propulsor defensivamente e quebrar a mira dos inimigos. """
+        
+        # 1. Verifica Cooldown
+        if agora_ms < bot_state.get('cooldown_propulsor', 0):
+            return
+
+        # 2. Critérios para usar: 
+        #    - HP Baixo (< 30%) OU 
+        #    - Tomou dano recentemente (< 500ms) e tem inimigo perto
+        hp_baixo = bot_state['hp'] < (bot_state['max_hp'] * 0.3)
+        tomou_dano = (agora_ms - bot_state.get('ultimo_hit_tempo', 0)) < 500
+        
+        ameaca_proxima = False
+        if tomou_dano:
+            ameaca = self._find_closest_threat_in_range(bot_state, all_living_players, BOT_DISTANCIA_SCAN_INIMIGO_SQ)
+            if ameaca: ameaca_proxima = True
+
+        if hp_baixo or (tomou_dano and ameaca_proxima):
+            # ATIVAR PROPULSOR
+            bot_state['propulsor_ativo'] = True
+            bot_state['fim_propulsor'] = agora_ms + self.s.DURACAO_PROPULSOR_IMUNE
+            bot_state['cooldown_propulsor'] = agora_ms + self.s.COOLDOWN_PROPULSOR
+            
+            # Força a perda de mira de quem estava mirando no bot (Simulação do server_ws)
+            # Remove locks de jogadores
+            for p in all_living_players:
+                if p.get('alvo_lock') == bot_state['nome']:
+                    p['alvo_lock'] = None
+            
+            # Remove locks de NPCs
+            for npc in self.network_npcs:
+                if npc.get('ia_alvo_id') == bot_state['nome']:
+                    npc['ia_alvo_id'] = None
 
     def _find_closest_edge_point(self, bot_pos_x, bot_pos_y):
             """

@@ -259,7 +259,7 @@ class PveRoom(GameRoom):
         self._update_game_logic(dt_multiplier)
 
         # Limpa NPCs mortos
-        self. npcs = [n for n in self. npcs if n. get('hp', 0) > 0]
+        self.npcs[:] = [n for n in self.npcs if n.get('hp', 0) > 0]
 
     def _update_game_logic(self, dt):
         living_players = [p for p in self. players.values()
