@@ -1,4 +1,4 @@
-# Servidor/server_ws. py
+# Servidor/server_ws.py
 import asyncio
 import websockets
 import json
@@ -7,7 +7,7 @@ import random
 import math
 import traceback
 import settings as s
-import multi. pvp_settings as pvp_s
+import multi.pvp_settings as pvp_s
 import server_bot_ai
 
 from server_logic import (
@@ -45,14 +45,14 @@ class GameRoom:
     def __init__(self, room_id, game_mode, max_players):
         self.room_id = room_id
         self.game_mode = game_mode
-        self. max_players = max_players
+        self.max_players = max_players
         self.clients = set()
-        self. players = {}
+        self.players = {}
         self.projectiles = []
         self.npcs = []
-        self. obstaculos = []
+        self.obstaculos = []
         self.next_npc_id = 0
-        self. agora_ms = 0
+        self.agora_ms = 0
         self.client_strikes = {}
         self._clients_to_remove = []  # Buffer para remoção segura
         self._cached_state = None     # Cache do estado serializado
@@ -65,10 +65,10 @@ class GameRoom:
         }
 
         if game_mode == "PVE":
-            self. bot_manager = server_bot_ai.ServerBotManager(s, self. state_globals, self.logic_callbacks)
+            self.bot_manager = server_bot_ai.ServerBotManager(s, self.state_globals, self.logic_callbacks)
 
     def is_full(self):
-        return len(self. clients) >= self. max_players
+        return len(self.clients) >= self.max_players
 
     def has_spectator_slot(self):
         limit = MAX_CONEXOES_PVP if self.game_mode == "PVP" else MAX_PLAYERS_PVE
@@ -76,13 +76,13 @@ class GameRoom:
 
     async def broadcast(self, message_str):
         """Broadcast otimizado com proteção agressiva contra clientes lentos"""
-        if not self. clients:
+        if not self.clients:
             return
 
         # Processa remoções pendentes primeiro
         await self._process_pending_removals()
 
-        clients_list = list(self. clients)
+        clients_list = list(self.clients)
         if not clients_list:
             return
 
@@ -102,7 +102,7 @@ class GameRoom:
                             strikes = self.client_strikes.get(id(client), 0) + 1
                             self.client_strikes[id(client)] = strikes
                             if strikes >= MAX_SLOW_STRIKES:
-                                dead_clients. append(client)
+                                dead_clients.append(client)
                             continue
                 except Exception:
                     pass
@@ -113,10 +113,10 @@ class GameRoom:
                 # Timeout global para o batch inteiro
                 try:
                     await asyncio.wait_for(
-                        asyncio. gather(*tasks, return_exceptions=True),
+                        asyncio.gather(*tasks, return_exceptions=True),
                         timeout=SEND_TIMEOUT * 2
                     )
-                except asyncio. TimeoutError:
+                except asyncio.TimeoutError:
                     print(f"[WARNING] Broadcast batch timeout na sala {self.room_id}")
 
             # Yield para não bloquear o event loop
@@ -133,7 +133,7 @@ class GameRoom:
             await asyncio.wait_for(client.send(message_str), timeout=SEND_TIMEOUT)
             # Reset strikes se enviou com sucesso
             client_id = id(client)
-            if client_id in self. client_strikes:
+            if client_id in self.client_strikes:
                 self.client_strikes[client_id] = 0
         except asyncio.TimeoutError:
             client_id = id(client)
@@ -157,13 +157,13 @@ class GameRoom:
         try:
             player_name = None
             if client in self.players:
-                player_name = self.players[client]. get('nome', 'Unknown')
+                player_name = self.players[client].get('nome', 'Unknown')
                 del self.players[client]
 
             self.clients.discard(client)
 
             client_id = id(client)
-            if client_id in self. client_strikes:
+            if client_id in self.client_strikes:
                 del self.client_strikes[client_id]
 
             if player_name:
@@ -179,15 +179,15 @@ class GameRoom:
     def remove_player(self, websocket):
         """Remove player de forma síncrona (chamado do handler)"""
         player_name = None
-        if websocket in self. players:
-            player_name = self. players[websocket]. get('nome', 'Unknown')
+        if websocket in self.players:
+            player_name = self.players[websocket].get('nome', 'Unknown')
             del self.players[websocket]
 
-        self.clients. discard(websocket)
+        self.clients.discard(websocket)
 
         client_id = id(websocket)
         if client_id in self.client_strikes:
-            del self. client_strikes[client_id]
+            del self.client_strikes[client_id]
 
         if player_name:
             print(f"[SALA {self.room_id}] {player_name} desconectou (Total: {len(self.clients)})")
@@ -213,47 +213,47 @@ class PveRoom(GameRoom):
         self.agora_ms = int(time.time() * 1000)
 
         # --- SPAWN DE NPCS (com contagem otimizada) ---
-        npcs_vivos = [n for n in self. npcs if n. get('hp', 0) > 0]
+        npcs_vivos = [n for n in self.npcs if n.get('hp', 0) > 0]
         count_normais = sum(1 for n in npcs_vivos if n['tipo'] not in ['mothership', 'boss_congelante', 'minion_mothership', 'minion_congelante', 'obstaculo'])
         count_motherships = sum(1 for n in npcs_vivos if n['tipo'] == 'mothership')
         count_bosses = sum(1 for n in npcs_vivos if n['tipo'] == 'boss_congelante')
 
-        refs = [(p['x'], p['y']) for p in self. players.values() if p. get('hp', 0) > 0]
+        refs = [(p['x'], p['y']) for p in self.players.values() if p.get('hp', 0) > 0]
 
         if count_normais < s.MAX_INIMIGOS and refs:
             npc = server_spawnar_inimigo_aleatorio(0, 0, f"npc_{self.next_npc_id}")
             sx, sy = server_calcular_posicao_spawn(refs, s.MAP_WIDTH, s.MAP_HEIGHT)
             npc['x'], npc['y'] = sx, sy
             self.npcs.append(npc)
-            self. next_npc_id += 1
+            self.next_npc_id += 1
 
         if count_motherships < s.MAX_MOTHERSHIPS and refs:
             ms = server_spawnar_mothership(0, 0, f"ms_{self.next_npc_id}")
             sx, sy = server_calcular_posicao_spawn(refs, s.MAP_WIDTH, s.MAP_HEIGHT)
             ms['x'], ms['y'] = sx, sy
             self.npcs.append(ms)
-            self. next_npc_id += 1
+            self.next_npc_id += 1
 
         if count_bosses < s.MAX_BOSS_CONGELANTE and refs:
             boss = server_spawnar_boss_congelante(0, 0, f"boss_{self.next_npc_id}")
             sx, sy = server_calcular_posicao_spawn(refs, s.MAP_WIDTH, s.MAP_HEIGHT)
             boss['x'], boss['y'] = sx, sy
             self.npcs.append(boss)
-            self. next_npc_id += 1
+            self.next_npc_id += 1
 
         # --- GERENCIAMENTO DE BOTS ---
         if self.agora_ms - self.last_bot_check > 1000:
-            self.last_bot_check = self. agora_ms
-            humanos_ativos_count = sum(1 for p in self.players. values()
+            self.last_bot_check = self.agora_ms
+            humanos_ativos_count = sum(1 for p in self.players.values()
                                        if not p.get('is_bot') and not p.get('is_spectator'))
             slots_para_bots = max(0, 10 - humanos_ativos_count)
             target_bots = min(s.MAX_BOTS, slots_para_bots)
 
-            bots_remover = self.bot_manager. manage_bot_population(target_bots)
+            bots_remover = self.bot_manager.manage_bot_population(target_bots)
             for bot_key in bots_remover:
                 key_to_delete = next((k for k, v in self.players.items()
                                       if v['nome'] == bot_key and v.get('is_bot')), None)
-                if key_to_delete and key_to_delete in self. players:
+                if key_to_delete and key_to_delete in self.players:
                     del self.players[key_to_delete]
 
         self._update_game_logic(dt_multiplier)
@@ -262,14 +262,14 @@ class PveRoom(GameRoom):
         self.npcs[:] = [n for n in self.npcs if n.get('hp', 0) > 0]
 
     def _update_game_logic(self, dt):
-        living_players = [p for p in self. players.values()
+        living_players = [p for p in self.players.values()
                           if p.get('hp', 0) > 0 and not p.get('is_spectator')]
 
         # Spawn obstáculos
         if len(self.obstaculos) < s.MAX_OBSTACULOS:
             refs = [(p['x'], p['y']) for p in self.players.values()]
-            obs = server_spawnar_obstaculo(refs, s.MAP_WIDTH, s.MAP_HEIGHT, f"obs_{self. next_npc_id}")
-            self.obstaculos. append(obs)
+            obs = server_spawnar_obstaculo(refs, s.MAP_WIDTH, s.MAP_HEIGHT, f"obs_{self.next_npc_id}")
+            self.obstaculos.append(obs)
             self.next_npc_id += 1
 
         living_targets = living_players + self.npcs + self.obstaculos
@@ -278,15 +278,15 @@ class PveRoom(GameRoom):
         # Update players
         for p in living_players:
             if p.get('is_bot'):
-                self.bot_manager. process_bot_logic(p, living_players, self.agora_ms)
+                self.bot_manager.process_bot_logic(p, living_players, self.agora_ms)
 
             if p.get('esta_regenerando'):
                 if p['teclas']['w'] or p['teclas']['a'] or p['teclas']['s'] or p['teclas']['d'] or p['alvo_mouse']:
                     p['esta_regenerando'] = False
                 elif p['hp'] < p['max_hp']:
-                    if self.agora_ms - p. get('ultimo_tick_regeneracao', 0) > REGEN_TICK_RATE_MS:
+                    if self.agora_ms - p.get('ultimo_tick_regeneracao', 0) > REGEN_TICK_RATE_MS:
                         p['hp'] = min(p['max_hp'], p['hp'] + REGEN_POR_TICK)
-                        p['ultimo_tick_regeneracao'] = self. agora_ms
+                        p['ultimo_tick_regeneracao'] = self.agora_ms
                 else:
                     p['esta_regenerando'] = False
 
@@ -309,13 +309,13 @@ class PveRoom(GameRoom):
             elif tipo == 'boss_congelante':
                 new_proj = update_boss_congelante_logic(npc, self.players, self.agora_ms, self, dt)
             elif 'minion' in tipo:
-                new_proj = update_minion_logic(npc, self. players, self.agora_ms, self, dt)
+                new_proj = update_minion_logic(npc, self.players, self.agora_ms, self, dt)
             else:
-                new_proj = update_npc_generic_logic(npc, self.players, self. agora_ms, dt)
+                new_proj = update_npc_generic_logic(npc, self.players, self.agora_ms, dt)
             if new_proj:
                 novos_projeteis.append(new_proj)
 
-        self.projectiles. extend(novos_projeteis)
+        self.projectiles.extend(novos_projeteis)
 
         # Processar colisões
         toremove_proj = set()
@@ -332,7 +332,7 @@ class PveRoom(GameRoom):
             # Verifica distância máxima
             dist_sq = (proj['x'] - proj['pos_inicial_x'])**2 + (proj['y'] - proj['pos_inicial_y'])**2
             if dist_sq > MAX_DISTANCIA_TIRO_SQ:
-                toremove_proj. add(proj_id)
+                toremove_proj.add(proj_id)
                 continue
 
             # Verifica limites do mapa
@@ -353,7 +353,7 @@ class PveRoom(GameRoom):
                         toremove_obs.add(id(obs))
                         owner = next((p for p in self.players.values() if p['nome'] == proj['owner_nome']), None)
                         if owner:
-                            server_ganhar_pontos(owner, obs. get('pontos_por_morte', 1))
+                            server_ganhar_pontos(owner, obs.get('pontos_por_morte', 1))
                     break
 
             if hit:
@@ -361,7 +361,7 @@ class PveRoom(GameRoom):
                 continue
 
             # Colisão com players
-            if proj['tipo']. startswith('player') or proj['tipo'] == 'npc':
+            if proj['tipo'].startswith('player') or proj['tipo'] == 'npc':
                 for target in living_players:
                     if target['nome'] == proj['owner_nome']:
                         continue
@@ -378,7 +378,7 @@ class PveRoom(GameRoom):
                         target['esta_regenerando'] = False
 
                         if old_hp > 0 and target['hp'] <= 0:
-                            if proj['tipo']. startswith('player'):
+                            if proj['tipo'].startswith('player'):
                                 killer = next((p for p in self.players.values() if p['nome'] == proj['owner_nome']), None)
                                 if killer:
                                     recompensa = int(target['pontos'] * 0.8)
@@ -398,9 +398,9 @@ class PveRoom(GameRoom):
                 continue
 
             # Colisão com NPCs
-            if proj['tipo']. startswith('player'):
+            if proj['tipo'].startswith('player'):
                 for npc in self.npcs:
-                    if npc. get('hp', 0) <= 0 or id(npc) in toremove_npc:
+                    if npc.get('hp', 0) <= 0 or id(npc) in toremove_npc:
                         continue
                     raio_npc = npc.get('tamanho', 30) / 2
                     if (npc['x'] - proj['x'])**2 + (npc['y'] - proj['y'])**2 < (raio_npc + 5)**2:
@@ -410,7 +410,7 @@ class PveRoom(GameRoom):
                         hit = True
                         if npc['hp'] <= 0:
                             toremove_npc.add(id(npc))
-                            owner = next((p for p in self. players.values() if p['nome'] == proj['owner_nome']), None)
+                            owner = next((p for p in self.players.values() if p['nome'] == proj['owner_nome']), None)
                             if owner:
                                 server_ganhar_pontos(owner, npc.get('pontos_por_morte', 5))
                         break
@@ -438,14 +438,14 @@ class PveRoom(GameRoom):
                     "hp": round(p['hp'], 1),
                     "max_hp": p['max_hp'],
                     "score": p['pontos'],
-                    "regen": p. get('esta_regenerando', False),
+                    "regen": p.get('esta_regenerando', False),
                     "pts_up": p['pontos_upgrade_disponiveis'],
                     "nv_motor": p['nivel_motor'],
                     "nv_dano": p['nivel_dano'],
                     "nv_hp": p['nivel_max_vida'],
                     "nv_escudo": p['nivel_escudo'],
                     "nv_aux": p['nivel_aux'],
-                    "is_bot": p. get('is_bot', False),
+                    "is_bot": p.get('is_bot', False),
                     "propulsor_ativo": p.get('propulsor_ativo', False),
                     "is_spectator": p.get('is_spectator', False)
                 }
@@ -464,15 +464,15 @@ class PveRoom(GameRoom):
 
         npcs_list = []
         for n in self.npcs:
-            if n. get('hp', 0) > 0:
+            if n.get('hp', 0) > 0:
                 npcs_list.append({
                     "id": n['id'],
                     "x": round(n['x'], 1),
                     "y": round(n['y'], 1),
-                    "angle": int(n. get('angulo', 0)),
+                    "angle": int(n.get('angulo', 0)),
                     "type": n['tipo'],
                     "size": n.get('tamanho', 30),
-                    "hp": n. get('hp', 0),
+                    "hp": n.get('hp', 0),
                     "max_hp": n.get('max_hp', 1)
                 })
 
@@ -499,12 +499,12 @@ class PveRoom(GameRoom):
 class PvpRoom(GameRoom):
     def __init__(self, room_id):
         super().__init__(room_id, "PVP", MAX_PLAYERS_PVP)
-        self. state = "WAITING"
+        self.state = "WAITING"
         self.timer_end = 0
         self.winner = ""
 
     def is_full(self):
-        active_fighters = sum(1 for p in self. players.values() if not p.get('is_spectator', False))
+        active_fighters = sum(1 for p in self.players.values() if not p.get('is_spectator', False))
         return active_fighters >= self.max_players
 
     def update(self, dt_multiplier=1.0):
@@ -513,22 +513,22 @@ class PvpRoom(GameRoom):
 
         if self.state == "WAITING":
             if active_fighters_count >= 4:
-                self. state = "LOBBY_COUNTDOWN"
-                self. timer_end = self.agora_ms + (pvp_s.PVP_LOBBY_COUNTDOWN_SEGUNDOS * 1000)
+                self.state = "LOBBY_COUNTDOWN"
+                self.timer_end = self.agora_ms + (pvp_s.PVP_LOBBY_COUNTDOWN_SEGUNDOS * 1000)
         elif self.state == "LOBBY_COUNTDOWN":
             if active_fighters_count < 4:
                 self.state = "WAITING"
             elif self.agora_ms >= self.timer_end:
-                self. start_pre_match()
-        elif self. state == "PRE_MATCH":
+                self.start_pre_match()
+        elif self.state == "PRE_MATCH":
             if self.agora_ms >= self.timer_end:
                 self.state = "PLAYING"
-                self. timer_end = self. agora_ms + (pvp_s.PVP_PARTIDA_DURACAO_SEGUNDOS * 1000)
+                self.timer_end = self.agora_ms + (pvp_s.PVP_PARTIDA_DURACAO_SEGUNDOS * 1000)
                 for p in self.players.values():
-                    if not p. get('is_spectator'):
+                    if not p.get('is_spectator'):
                         p['is_pre_match'] = False
         elif self.state == "PLAYING":
-            survivors = [p for p in self.players. values() if p['hp'] > 0 and not p.get('is_spectator')]
+            survivors = [p for p in self.players.values() if p['hp'] > 0 and not p.get('is_spectator')]
             if len(survivors) <= 1:
                 self.winner = survivors[0]['nome'] if survivors else "Empate"
                 self.state = "GAME_OVER"
@@ -537,7 +537,7 @@ class PvpRoom(GameRoom):
                 survivors.sort(key=lambda p: p['hp'], reverse=True)
                 self.winner = survivors[0]['nome'] if survivors else "Empate"
                 self.state = "GAME_OVER"
-                self.timer_end = self. agora_ms + 10000
+                self.timer_end = self.agora_ms + 10000
         elif self.state == "GAME_OVER":
             if self.agora_ms >= self.timer_end:
                 self.reset_room()
@@ -546,12 +546,12 @@ class PvpRoom(GameRoom):
 
     def start_pre_match(self):
         self.state = "PRE_MATCH"
-        self.timer_end = self. agora_ms + 5000
+        self.timer_end = self.agora_ms + 5000
         players_list = [p for p in self.players.values() if not p.get('is_spectator')]
         for i, p in enumerate(players_list):
-            if i < len(pvp_s. SPAWN_POSICOES):
-                spawn = pvp_s. SPAWN_POSICOES[i]
-                p['x'], p['y'] = spawn. x, spawn.y
+            if i < len(pvp_s.SPAWN_POSICOES):
+                spawn = pvp_s.SPAWN_POSICOES[i]
+                p['x'], p['y'] = spawn.x, spawn.y
                 p['hp'] = p['max_hp']
                 p['is_pre_match'] = True
                 p['alvo_mouse'] = None
@@ -564,7 +564,7 @@ class PvpRoom(GameRoom):
         for p in self.players.values():
             if p.get('is_spectator'):
                 continue
-            p['x'], p['y'] = pvp_s. SPAWN_LOBBY. x, pvp_s.SPAWN_LOBBY.y
+            p['x'], p['y'] = pvp_s.SPAWN_LOBBY.x, pvp_s.SPAWN_LOBBY.y
             p['hp'] = p['max_hp']
             p['is_pre_match'] = False
             p['pontos'] = 0
@@ -575,7 +575,7 @@ class PvpRoom(GameRoom):
             p['nivel_aux'] = 0
             p['pontos_upgrade_disponiveis'] = 10
             p['total_upgrades_feitos'] = 0
-            p['max_hp'] = float(s. VIDA_POR_NIVEL[1])
+            p['max_hp'] = float(s.VIDA_POR_NIVEL[1])
             p['hp'] = p['max_hp']
             p['propulsor_ativo'] = False
             p['fim_propulsor'] = 0
@@ -584,7 +584,7 @@ class PvpRoom(GameRoom):
     def _update_pvp_physics(self, dt):
         damage_enabled = (self.state == "PLAYING")
         move_enabled = (self.state != "PRE_MATCH")
-        living_players = [p for p in self. players.values() if p['hp'] > 0 and not p.get('is_spectator')]
+        living_players = [p for p in self.players.values() if p['hp'] > 0 and not p.get('is_spectator')]
 
         for p in living_players:
             if not move_enabled:
@@ -593,10 +593,10 @@ class PvpRoom(GameRoom):
 
             new_proj = update_player_logic(p, living_players, self.agora_ms, pvp_s.MAP_WIDTH, pvp_s.MAP_HEIGHT, dt)
             if new_proj:
-                self. projectiles. append(new_proj)
+                self.projectiles.append(new_proj)
 
             if damage_enabled:
-                aux_projs = process_auxiliaries_logic(p, living_players, self. agora_ms)
+                aux_projs = process_auxiliaries_logic(p, living_players, self.agora_ms)
                 if aux_projs:
                     self.projectiles.extend(aux_projs)
 
@@ -606,10 +606,10 @@ class PvpRoom(GameRoom):
             if proj_id in toremove_proj:
                 continue
 
-            update_projectile_physics(proj, living_players, self. agora_ms, dt)
+            update_projectile_physics(proj, living_players, self.agora_ms, dt)
 
-            if not (0 <= proj['x'] <= pvp_s. MAP_WIDTH and 0 <= proj['y'] <= pvp_s.MAP_HEIGHT):
-                toremove_proj. add(proj_id)
+            if not (0 <= proj['x'] <= pvp_s.MAP_WIDTH and 0 <= proj['y'] <= pvp_s.MAP_HEIGHT):
+                toremove_proj.add(proj_id)
                 continue
 
             if damage_enabled:
@@ -618,7 +618,7 @@ class PvpRoom(GameRoom):
                         continue
                     if (target['x'] - proj['x'])**2 + (target['y'] - proj['y'])**2 < COLISAO_JOGADOR_PROJ_DIST_SQ:
                         if target.get('propulsor_ativo', False):
-                            toremove_proj. add(proj_id)
+                            toremove_proj.add(proj_id)
                             break
 
                         dano = proj['dano']
@@ -629,22 +629,22 @@ class PvpRoom(GameRoom):
 
                         if old_hp > 0 and target['hp'] <= 0:
                             if proj['tipo'].startswith('player'):
-                                killer = next((p for p in self. players.values() if p['nome'] == proj['owner_nome']), None)
+                                killer = next((p for p in self.players.values() if p['nome'] == proj['owner_nome']), None)
                                 if killer:
                                     recompensa = int(target['pontos'] * 0.8)
                                     if recompensa > 0:
                                         server_ganhar_pontos(killer, recompensa)
 
-                        if target['nivel_escudo'] >= s. MAX_NIVEL_ESCUDO:
+                        if target['nivel_escudo'] >= s.MAX_NIVEL_ESCUDO:
                             dx = proj['x'] - target['x']
                             dy = proj['y'] - target['y']
                             target['shield_hit'] = {'time': self.agora_ms, 'angle': math.atan2(dy, dx)}
 
-                        toremove_proj. add(proj_id)
+                        toremove_proj.add(proj_id)
                         break
 
         if toremove_proj:
-            self. projectiles = [p for p in self. projectiles if id(p) not in toremove_proj]
+            self.projectiles = [p for p in self.projectiles if id(p) not in toremove_proj]
 
     def get_state_json(self):
         players_list = []
@@ -666,7 +666,7 @@ class PvpRoom(GameRoom):
                     "nv_escudo": p['nivel_escudo'],
                     "nv_aux": p['nivel_aux'],
                     "propulsor_ativo": p.get('propulsor_ativo', False),
-                    "is_spectator": p. get('is_spectator', False)
+                    "is_spectator": p.get('is_spectator', False)
                 }
                 if p.get('shield_hit') and self.agora_ms - p['shield_hit']['time'] < 200:
                     p_data['shield_hit'] = True
@@ -708,7 +708,7 @@ for i in range(QTD_SALAS_PVP):
 
 def find_available_room(mode):
     for room in ROOMS.values():
-        if room. game_mode == mode:
+        if room.game_mode == mode:
             if mode == "PVP" and room.state not in ["WAITING", "LOBBY_COUNTDOWN"]:
                 continue
             if not room.is_full():
@@ -717,27 +717,44 @@ def find_available_room(mode):
 
 
 def find_spectator_room(mode):
-    for room in ROOMS. values():
-        if room.game_mode == mode and room. has_spectator_slot():
+    for room in ROOMS.values():
+        if room.game_mode == mode and room.has_spectator_slot():
             return room
     return None
 
 
 async def game_loop():
-    """Game loop otimizado com separação clara de fases"""
-    print(f"Servidor Iniciado.  PVE: {QTD_SALAS_PVE}, PVP: {QTD_SALAS_PVP}.  Tick: {TICK_RATE}")
-    dt_multiplier = REFERENCE_FPS / TICK_RATE
+    """Game loop com Delta Time Dinâmico para suavizar movimentos"""
+    print(f"Servidor Iniciado. PVE: {QTD_SALAS_PVE}, PVP: {QTD_SALAS_PVP}. Tick Alvo: {TICK_RATE}")
+
+    # Inicializa o tempo anterior antes de entrar no loop
+    last_time = time.time()
 
     tick_count = 0
     last_stats_time = time.time()
 
     while True:
-        loop_start = time.time()
+        # 1. Marca o tempo atual do início deste frame
+        current_time = time.time()
+
+        # 2. Calcula quanto tempo passou desde o último frame (Delta Time em segundos)
+        delta_seconds = current_time - last_time
+        last_time = current_time
+
+        # 3. Calcula o multiplicador baseado no FPS de referência (60.0)
+        # Se rodar perfeito a 30Hz: 0.033s * 60 = 2.0 (Movimento normal)
+        # Se lagar e cair para 15Hz: 0.066s * 60 = 4.0 (Movimento dobra pra compensar o lag)
+        dt_multiplier = delta_seconds * REFERENCE_FPS
+
+        # Trava o dt máximo para evitar "pulos" (tunneling) se o servidor travar muito tempo
+        # Ex: Se travar por 1 segundo, não teletransporta o jogador 60x a distância
+        if dt_multiplier > 5.0:
+            dt_multiplier = 5.0
 
         try:
-            # ===== FASE 1: UPDATE (síncrono, deve ser rápido) =====
+            # ===== FASE 1: UPDATE (Passamos o dt dinâmico aqui) =====
             update_start = time.time()
-            for room in ROOMS. values():
+            for room in ROOMS.values():
                 try:
                     room.update(dt_multiplier)
                 except Exception as e:
@@ -745,51 +762,45 @@ async def game_loop():
                     traceback.print_exc()
             update_time = time.time() - update_start
 
-            # ===== FASE 2: SERIALIZAÇÃO (síncrono) =====
-            serialize_start = time. time()
+            # ===== FASE 2: SERIALIZAÇÃO =====
+            serialize_start = time.time()
             room_messages = {}
             for room_id, room in ROOMS.items():
                 if room.clients:
                     try:
-                        room_messages[room_id] = room. get_state_string()
+                        room_messages[room_id] = room.get_state_string()
                     except Exception as e:
                         print(f"[ERROR] Serialização sala {room_id}: {e}")
             serialize_time = time.time() - serialize_start
 
-            # ===== FASE 3: BROADCAST (assíncrono, paralelo) =====
+            # ===== FASE 3: BROADCAST =====
             broadcast_start = time.time()
             broadcast_tasks = []
-            for room_id, message in room_messages. items():
+            for room_id, message in room_messages.items():
                 room = ROOMS[room_id]
                 broadcast_tasks.append(room.broadcast(message))
 
             if broadcast_tasks:
-                await asyncio. gather(*broadcast_tasks, return_exceptions=True)
-            broadcast_time = time. time() - broadcast_start
+                await asyncio.gather(*broadcast_tasks, return_exceptions=True)
+            broadcast_time = time.time() - broadcast_start
 
             # ===== ESTATÍSTICAS =====
             tick_count += 1
-            elapsed = time.time() - loop_start
 
-            # Log de performance a cada 30 segundos
             if time.time() - last_stats_time > 30:
                 total_clients = sum(len(r.clients) for r in ROOMS.values())
-                total_players = sum(len(r.players) for r in ROOMS. values())
-                print(f"[STATS] Tick {tick_count}: {total_clients} conexões, {total_players} jogadores")
-                print(f"[STATS] Update: {update_time * 1000:.1f}ms, Serialize: {serialize_time * 1000:.1f}ms, Broadcast: {broadcast_time * 1000:.1f}ms")
+                print(f"[STATS] Tick {tick_count}: {total_clients} conexões. DT Médio: {dt_multiplier:.2f}")
                 last_stats_time = time.time()
                 tick_count = 0
-
-            if elapsed > 0.1:
-                print(f"[LAG WARNING] Tick demorou {elapsed:.3f}s (Update:{update_time:.3f}s, Ser:{serialize_time:.3f}s, BC:{broadcast_time:.3f}s)")
 
         except Exception as e:
             print(f"[CRITICAL ERROR IN GAME LOOP]: {e}")
             traceback.print_exc()
 
-        # Calcula tempo de espera
-        elapsed = time.time() - loop_start
-        sleep_time = max(0.001, (1.0 / TICK_RATE) - elapsed)  # Mínimo 1ms de sleep
+        # Calcula tempo de espera para tentar manter o TICK_RATE alvo
+        # Isso evita que o servidor use 100% de CPU rodando loops vazios
+        execution_time = time.time() - current_time
+        sleep_time = max(0.001, (1.0 / TICK_RATE) - execution_time)
         await asyncio.sleep(sleep_time)
 
 
@@ -812,7 +823,7 @@ async def handler(websocket):
             await websocket.close(1008, "Invalid JSON")
             return
 
-        if data. get("type") != "LOGIN":
+        if data.get("type") != "LOGIN":
             await websocket.close(1008, "Expected LOGIN")
             return
 
@@ -828,21 +839,21 @@ async def handler(websocket):
                 is_spectator_on_join = True
 
         if not current_room:
-            await websocket. close(1008, "Servidor lotado")
+            await websocket.close(1008, "Servidor lotado")
             return
 
         # ===== CRIA PLAYER STATE =====
         if mode == "PVP":
-            spawn_x, spawn_y = pvp_s. SPAWN_LOBBY. x, pvp_s.SPAWN_LOBBY.y
+            spawn_x, spawn_y = pvp_s.SPAWN_LOBBY.x, pvp_s.SPAWN_LOBBY.y
             upgrade_pts = 10
             map_w, map_h = pvp_s.MAP_WIDTH, pvp_s.MAP_HEIGHT
         else:
-            spawn_x, spawn_y = server_calcular_posicao_spawn([], s.MAP_WIDTH, s. MAP_HEIGHT)
+            spawn_x, spawn_y = server_calcular_posicao_spawn([], s.MAP_WIDTH, s.MAP_HEIGHT)
             upgrade_pts = 0
-            map_w, map_h = s.MAP_WIDTH, s. MAP_HEIGHT
+            map_w, map_h = s.MAP_WIDTH, s.MAP_HEIGHT
 
         hp_init = float(s.VIDA_POR_NIVEL[1])
-        unique_id = f"{player_name}_{int(time. time() * 1000) % 1000000}"
+        unique_id = f"{player_name}_{int(time.time() * 1000) % 1000000}"
 
         p_state = {
             'nome': unique_id,
@@ -887,7 +898,7 @@ async def handler(websocket):
         current_room.clients.add(websocket)
         current_room.players[websocket] = p_state
 
-        print(f"[JOIN] {unique_id} -> {current_room.room_id} ({len(current_room. clients)} conexões)")
+        print(f"[JOIN] {unique_id} -> {current_room.room_id} ({len(current_room.clients)} conexões)")
 
         # ===== ENVIA WELCOME =====
         welcome = json.dumps({
@@ -910,17 +921,17 @@ async def handler(websocket):
             try:
                 cmd = json.loads(message)
 
-                if p_state. get('is_spectator'):
+                if p_state.get('is_spectator'):
                     continue
 
-                cmd_type = cmd. get("type")
+                cmd_type = cmd.get("type")
 
                 if cmd_type == "INPUT":
                     p_state['teclas']['w'] = bool(cmd.get('w', False))
                     p_state['teclas']['a'] = bool(cmd.get('a', False))
                     p_state['teclas']['s'] = bool(cmd.get('s', False))
                     p_state['teclas']['d'] = bool(cmd.get('d', False))
-                    p_state['teclas']['space'] = bool(cmd. get('space', False))
+                    p_state['teclas']['space'] = bool(cmd.get('space', False))
                     if 'mouse_x' in cmd and 'mouse_y' in cmd:
                         p_state['alvo_mouse'] = (cmd['mouse_x'], cmd['mouse_y'])
 
@@ -929,10 +940,10 @@ async def handler(websocket):
                     if agora > p_state['cooldown_propulsor']:
                         p_state['propulsor_ativo'] = True
                         p_state['fim_propulsor'] = agora + s.DURACAO_PROPULSOR_IMUNE
-                        p_state['cooldown_propulsor'] = agora + s. COOLDOWN_PROPULSOR
+                        p_state['cooldown_propulsor'] = agora + s.COOLDOWN_PROPULSOR
                         # Remove locks
-                        for other_p in current_room. players.values():
-                            if other_p. get('alvo_lock') == p_state['nome']:
+                        for other_p in current_room.players.values():
+                            if other_p.get('alvo_lock') == p_state['nome']:
                                 other_p['alvo_lock'] = None
                         for npc in current_room.npcs:
                             if npc.get('ia_alvo_id') == p_state['nome']:
@@ -952,16 +963,16 @@ async def handler(websocket):
 
                         # Busca em NPCs e obstáculos
                         for alvo in current_room.npcs + current_room.obstaculos:
-                            if alvo. get('hp', 0) <= 0:
+                            if alvo.get('hp', 0) <= 0:
                                 continue
                             dist_sq = (alvo['x'] - click_x) ** 2 + (alvo['y'] - click_y) ** 2
                             if dist_sq < TARGET_CLICK_SIZE_SQ and dist_sq < melhor_dist:
                                 melhor_dist = dist_sq
-                                melhor_id = alvo. get('id')
+                                melhor_id = alvo.get('id')
 
                         # Busca em outros jogadores
                         for p in current_room.players.values():
-                            if p['nome'] == p_state['nome'] or p. get('is_spectator') or p. get('hp', 0) <= 0:
+                            if p['nome'] == p_state['nome'] or p.get('is_spectator') or p.get('hp', 0) <= 0:
                                 continue
                             dist_sq = (p['x'] - click_x) ** 2 + (p['y'] - click_y) ** 2
                             if dist_sq < TARGET_CLICK_SIZE_SQ and dist_sq < melhor_dist:
@@ -971,7 +982,7 @@ async def handler(websocket):
                         # Verifica propulsor
                         if melhor_id:
                             alvo_obj = next((p for p in current_room.players.values() if p['nome'] == melhor_id), None)
-                            if alvo_obj and alvo_obj. get('propulsor_ativo', False):
+                            if alvo_obj and alvo_obj.get('propulsor_ativo', False):
                                 p_state['alvo_lock'] = None
                             else:
                                 p_state['alvo_lock'] = melhor_id
@@ -979,7 +990,7 @@ async def handler(websocket):
                             p_state['alvo_lock'] = None
 
                 elif cmd_type == "TOGGLE_REGEN":
-                    if not p_state. get('esta_regenerando') and p_state['hp'] < p_state['max_hp']:
+                    if not p_state.get('esta_regenerando') and p_state['hp'] < p_state['max_hp']:
                         p_state['esta_regenerando'] = True
                     else:
                         p_state['esta_regenerando'] = False
@@ -993,7 +1004,7 @@ async def handler(websocket):
                         spawn_x, spawn_y = server_calcular_posicao_spawn([], s.MAP_WIDTH, s.MAP_HEIGHT)
                         hp_init = float(s.VIDA_POR_NIVEL[1])
 
-                        p_state. update({
+                        p_state.update({
                             'x': spawn_x,
                             'y': spawn_y,
                             'nivel_max_vida': 1,
@@ -1018,9 +1029,9 @@ async def handler(websocket):
             except json.JSONDecodeError:
                 pass
             except Exception as e:
-                print(f"[ERROR] Comando de {p_state. get('nome', 'Unknown')}: {e}")
+                print(f"[ERROR] Comando de {p_state.get('nome', 'Unknown')}: {e}")
 
-    except websockets. exceptions.ConnectionClosed:
+    except websockets.exceptions.ConnectionClosed:
         pass
     except Exception as e:
         print(f"[ERROR] Handler {player_name}: {e}")
