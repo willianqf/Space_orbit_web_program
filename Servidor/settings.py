@@ -25,6 +25,10 @@ PLAYER_ROTATION_SPEED = 280   # Graus por segundo (rotação suave)
 MIN_INPUT_INTERVAL_MS = 15    # Limita inputs a ~66 por segundo (evita flood)
 # -------------------------------------
 
+NPC_COLLISION_RADIUS = 20    # Raio de colisão genérico para NPCs
+PLAYER_COLLISION_RADIUS = 12  # Raio da nave (Tente diminuir se ainda achar grande)
+TIRO_RAIO = 4                 # Raio do projétil
+
 SPAWN_DIST_MIN = LARGURA_TELA_INICIAL * 0.8
 NPC_AGGRO_RANGE = 3000
 SPAWN_DIST_MAX = LARGURA_TELA_INICIAL * 1.5
