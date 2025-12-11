@@ -46,6 +46,13 @@ def _rotate_vector(x, y, angle_degrees):
     rad = math.radians(angle_degrees); cos_a = math.cos(rad); sin_a = math.sin(rad)
     return x * cos_a - y * sin_a, x * sin_a + y * cos_a
 
+def _move_angle_smooth(current, target, step):
+    """ Rotaciona 'current' em direção a 'target' no máximo 'step' graus. """
+    diff = (target - current + 180) % 360 - 180
+    if abs(diff) < step:
+        return target
+    return (current + math.copysign(step, diff)) % 360
+
 def calc_hit_angle_rad(target_x, target_y, attacker_x, attacker_y):
     dx = attacker_x - target_x; dy = attacker_y - target_y
     if dx == 0 and dy == 0: return 0
@@ -111,6 +118,10 @@ def update_player_logic(player_state, lista_alvos_busca, agora_ms, map_width, ma
     if agora_ms < player_state.get('tempo_fim_congelamento', 0): player_state['alvo_mouse'] = None; return None
     is_lento = agora_ms < player_state.get('tempo_fim_lentidao', 0)
     
+    # --- LÓGICA DE MIRA E ROTAÇÃO ---
+    target_angle = player_state['angulo'] # Default
+    has_target = False
+
     if player_state['alvo_lock']:
         alvo = None
         for e in lista_alvos_busca:
@@ -119,13 +130,22 @@ def update_player_logic(player_state, lista_alvos_busca, agora_ms, map_width, ma
         if alvo and alvo.get('hp', 0) > 0:
             vec_x = alvo['x'] - player_state['x']; vec_y = alvo['y'] - player_state['y']
             if vec_x**2 + vec_y**2 > MAX_TARGET_LOCK_DISTANCE_SQ: player_state['alvo_lock'] = None
-            else: player_state['angulo'] = (-math.degrees(math.atan2(vec_y, vec_x)) - 90) % 360
+            else: 
+                target_angle = (-math.degrees(math.atan2(vec_y, vec_x)) - 90) % 360
+                has_target = True
         else: player_state['alvo_lock'] = None
     elif player_state['alvo_mouse']:
         vec_x = player_state['alvo_mouse'][0] - player_state['x']; vec_y = player_state['alvo_mouse'][1] - player_state['y']
-        if vec_x**2 + vec_y**2 > 25: player_state['angulo'] = (-math.degrees(math.atan2(vec_y, vec_x)) - 90) % 360
-    
-    if not player_state['alvo_lock'] and not player_state['alvo_mouse']:
+        if vec_x**2 + vec_y**2 > 25: 
+            target_angle = (-math.degrees(math.atan2(vec_y, vec_x)) - 90) % 360
+            has_target = True
+
+    # Aplica Rotação Suave (Validation)
+    if has_target:
+        rot_step = s.PLAYER_ROTATION_SPEED * dt
+        player_state['angulo'] = _move_angle_smooth(player_state['angulo'], target_angle, rot_step)
+    elif not player_state['alvo_lock'] and not player_state['alvo_mouse']:
+        # Rotação manual (teclas A/D)
         if player_state['teclas']['a']: player_state['angulo'] = (player_state['angulo'] + (5 * dt)) % 360
         if player_state['teclas']['d']: player_state['angulo'] = (player_state['angulo'] - (5 * dt)) % 360
     
@@ -225,7 +245,11 @@ def update_npc_generic_logic(npc, players_dict, agora_ms, dt=1.0):
         if dist > 0: dir_x = vec_x / dist; dir_y = vec_y / dist; npc['x'] += dir_x * velocidade; npc['y'] += dir_y * velocidade
     radianos = math.atan2(vec_y, vec_x); npc['angulo'] = (-math.degrees(radianos) - 90) % 360
     if tipo == 'bomba':
-        if dist_min_sq <= KAMIKAZE_DIST_DETONACAO_SQ: npc['hp'] = 0
+        # Se chegou perto o suficiente para detonar
+        if dist_min_sq <= KAMIKAZE_DIST_DETONACAO_SQ:
+            # [CORREÇÃO] Chama a função de dano em área antes de morrer
+            server_processar_explosao_kamikaze(npc, players_dict, agora_ms)
+            npc['hp'] = 0 # O NPC morre/some
         return None
     if dist_min_sq < DISTANCIA_TIRO_PERSEGUIDOR_SQ:
         cooldown = npc.get('cooldown_tiro', COOLDOWN_TIRO_PERSEGUIDOR)
@@ -371,4 +395,33 @@ def server_spawnar_obstaculo(pos_referencia_lista, map_width, map_height, npc_id
     pct = (raio_norm - raio_min) / range_r if range_r > 0 else 0; pts = int(round(pontos_min + (pct * range_p))); hp_calculado = 0.1
     return { 'id': npc_id, 'tipo': 'obstaculo', 'x': float(x), 'y': float(y), 'raio': raio, 'hp': hp_calculado, 'max_hp': hp_calculado, 'pontos_por_morte': pts }
 
-def server_processar_explosao_kamikaze(npc, players_dict, agora_ms): pass
+def server_processar_explosao_kamikaze(npc, players_dict, agora_ms):
+    # Pega o dano base das configurações (padrão 30.0 se não achar)
+    dano_base = getattr(s, 'KAMIKAZE_DANO', 30.0)
+    
+    # Usa o raio de explosão ao quadrado (já calculado no início do arquivo: s.KAMIKAZE_RAIO_EXPLOSAO**2)
+    raio_sq = KAMIKAZE_RAIO_EXPLOSAO_SQ 
+    
+    # Verifica cada jogador online
+    for p in players_dict.values():
+        # Ignora quem já morreu, espectadores ou quem está com propulsor (invencível)
+        if p.get('hp', 0) <= 0 or p.get('propulsor_ativo', False) or p.get('is_spectator', False):
+            continue
+
+        # Distância do jogador até a bomba
+        dist_sq = (p['x'] - npc['x'])**2 + (p['y'] - npc['y'])**2
+        
+        # Se estiver dentro da área de explosão
+        if dist_sq <= raio_sq:
+            # Cálculo de redução de dano (igual aos tiros)
+            # Ex: Escudo nível 5 reduz o dano consideravelmente
+            reducao = min(p['nivel_escudo'] * REDUCAO_DANO_POR_NIVEL, 75) / 100.0
+            dano_final = dano_base * (1.0 - reducao)
+            
+            # Aplica o dano
+            p['hp'] -= dano_final
+            p['ultimo_hit_tempo'] = agora_ms
+            p['esta_regenerando'] = False # Cancela regeneração se estiver ativo
+            
+            # (Opcional) Print para debug no servidor se quiser ver acontecendo
+            # print(f"[EXPLOSAO] Kamikaze acertou {p['nome']} (Dano: {dano_final:.1f})")

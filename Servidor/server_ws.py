@@ -808,6 +808,10 @@ async def handler(websocket):
     """Handler de conexão com proteções robustas"""
     current_room = None
     player_name = "Unknown"
+    
+    # --- Rate Limit State ---
+    last_input_time = 0
+    input_warning_count = 0
 
     try:
         # ===== LOGIN COM TIMEOUT =====
@@ -920,11 +924,24 @@ async def handler(websocket):
         async for message in websocket:
             try:
                 cmd = json.loads(message)
+                cmd_type = cmd.get("type")
+
+                # --- RATE LIMITER (Input Validation) ---
+                if cmd_type == "INPUT":
+                    now_ms = int(time.time() * 1000)
+                    if now_ms - last_input_time < s.MIN_INPUT_INTERVAL_MS:
+                        input_warning_count += 1
+                        if input_warning_count > 100: # Se abusar muito, desconecta
+                            await websocket.close(1008, "Input Flooding")
+                            return
+                        continue # Ignora este pacote
+                    
+                    last_input_time = now_ms
+                    if input_warning_count > 0:
+                        input_warning_count -= 1
 
                 if p_state.get('is_spectator'):
                     continue
-
-                cmd_type = cmd.get("type")
 
                 if cmd_type == "INPUT":
                     p_state['teclas']['w'] = bool(cmd.get('w', False))
